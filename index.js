@@ -1,10 +1,8 @@
-
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
-// Фейковый веб-сервер, чтобы Render не усыплял бота 24/7
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -26,7 +24,9 @@ if (fs.existsSync(dbPath)) {
 function saveDB() {
     try {
         fs.writeFileSync(dbPath, JSON.stringify(users, null, 2), 'utf8');
-    } catch (e) {}
+    } catch (e) {
+        console.error("Ошибка сохранения БД:", e);
+    }
 }
 
 const bot = new TelegramBot(token, { polling: true });
@@ -58,7 +58,6 @@ bot.on('message', (msg) => {
         return bot.sendMessage(chatId, `💳 Ваш баланс: ${user.balance}$`);
     }
 
-    // БОНУС РАЗ В 24 ЧАСА
     if (text === 'бонус' || text === 'бонусы') {
         const now = Date.now();
         const cooldown = 24 * 60 * 60 * 1000;
@@ -79,7 +78,6 @@ bot.on('message', (msg) => {
         return bot.sendMessage(chatId, `🎉 Вы получили ежедневный бонус 500$!\n💰 Ваш баланс: ${user.balance}$`);
     }
 
-    // РУЛЕТКА
     const match = text.match(/^(\d+)\s+(к|красное|ч|черное|\d+)$/i);
     if (match) {
         if (user.inGame) {
@@ -107,25 +105,26 @@ bot.on('message', (msg) => {
             const num = Math.floor(Math.random() * 37);
             let color = num === 0 ? 'зеленое (зеро)' : (redNumbers.includes(num) ? 'красное' : 'черное');
             let win = false;
+            let multiplier = 2;
 
             if ((target === 'к' || target === 'красное') && color === 'красное') win = true;
             if ((target === 'ч' || target === 'черное') && color === 'черное') win = true;
-            if (!isNaN(target) && parseInt(target) === num) win = true;
-
-            if (win) {
-                const winAmt = (!isNaN(target)) ? amount * 36 : amount * 2;
-                user.balance += winAmt;
-                bot.sendMessage(chatId, `🔥 ПОБЕДА! Выпало: ${num} (${color}).\n🎉 Выиграно: ${winAmt}$\n💰 Ваш баланс: ${user.balance}$`);
-            } else {
-                bot.sendMessage(chatId, `💩 Выпало: ${num} (${color}). Ставка сгорела!\n💰 Ваш баланс: ${user.balance}$`);
+            if (!isNaN(target) && parseInt(target) === num) {
+                win = true;
+                multiplier = 36;
             }
 
             user.inGame = false;
-            saveDB();
-        }, 1500);
+
+            if (win) {
+                const winAmount = amount * multiplier;
+                user.balance += winAmount;
+                saveDB();
+                bot.sendMessage(chatId, `🎰 Выпало: ${num} (${color})!\n🎉 ПОБЕДА! Вы выиграли ${winAmount}$!\n💰 Баланс: ${user.balance}$`);
+            } else {
+                saveDB();
+                bot.sendMessage(chatId, `🎰 Выпало: ${num} (${color})!\n❌ Вы проиграли ${amount}$.\n💰 Баланс: ${user.balance}$`);
+            }
+        }, 3000);
     }
 });
-
-process.on('uncaughtException', (err) => console.log('Ошибка:', err.message));
-process.on('unhandledRejection', (err) => console.log('Отказ:', err.message));
-bot.on('polling_error', () => {});
