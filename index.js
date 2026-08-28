@@ -3,14 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
-// Веб-сервер с жесткой привязкой к 0.0.0.0 (специально для Render)
+// Сервер для поддержания жизни 24/7 на Render
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('RozeGram Casino 24/7 is Live!');
+    res.end('RozeGram Casino 24/7 Engine is Running!');
 }).listen(PORT, '0.0.0.0', () => console.log(`[SERVER] Слушаем порт ${PORT}`));
 
-const token = '8919281816:AAH59R8wRTGKP_pV5NTqgFSXAuDen4SmmN0';
+const token = '8919281816:AAH27A8QQXZzpFx9Q4ObF5x4NDhrU7JPRnM'
 const dbPath = path.join(__dirname, 'db.json');
 
 let db = { users: {}, history: [] };
@@ -55,6 +55,7 @@ function getUser(userId) {
 }
 
 const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 bot.on('message', async (msg) => {
     try {
@@ -95,17 +96,17 @@ bot.on('message', async (msg) => {
             const rulesText = 
 `🎰 **ПРАВИЛА ИГРЫ В КАЗИНО ROZEGRAM** 🎲
 
-Ставки принимаются в формате: **[Сумма] [Тип ставки]**
+Ставки принимаются в формате: [Сумма] [Тип ставки]
 
-📌 **Примеры ставок:**
+📌 Примеры ставок:
 • \`100 к\` или \`100 красное\` — ставка на КРАСНОЕ (X2)
 • \`200 ч\` или \`200 черное\` — ставка на ЧЕРНОЕ (X2)
 • \`500 чет\` — ставка на ЧЕТНЫЕ числа (X2)
 • \`500 нечет\` — ставка на НЕЧЕТНЫЕ числа (X2)
 • \`300 12\` — ставка на ТОЧНОЕ число от 0 до 36 (X36!)
 
-🚀 **Как запустить игру:**
-После того как вы (и ваши друзья в беседе) сделали ставки, напишите слово **го**, **старт** или **крутить**!
+🚀 Как запустить игру:
+После того как вы (и ваши друзья в беседе) сделали ставки, напишите слово го, старт или крутить!
 
 ⚠️ *При выпадении Зеро (0) ставки на красное/черное и чет/нечет сгорают!*`;
 
@@ -117,7 +118,7 @@ bot.on('message', async (msg) => {
         }
 
         if (text === 'баланс' || text === 'бал' || text === '💳 баланс') {
-            return await bot.sendMessage(chatId, `💳 Ваш баланс: ${user.balance}$`);
+            return await bot.sendMessage(chatId, `💳 Ваш баланс: **${user.balance}$**`, { parse_mode: 'Markdown' });
         }
 
         // ИСТОРИЯ
@@ -140,14 +141,14 @@ bot.on('message', async (msg) => {
                 const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
                 const minutesLeft = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
                 
-                return await bot.sendMessage(chatId, `⏳ Забрать бонус можно через ${hoursLeft} ч. и ${minutesLeft} мин.`);
+                return await bot.sendMessage(chatId, `⏳ Забрать бонус можно через **${hoursLeft} ч.** и **${minutesLeft} мин.**`, { parse_mode: 'Markdown' });
             }
 
             user.balance += 500;
             user.lastBonus = now;
             saveDB();
 
-            return await bot.sendMessage(chatId, `🎉 Вы получили ежедневный бонус 500$!\n💰 Ваш баланс: ${user.balance}$`);
+            return await bot.sendMessage(chatId, `🎉 Вы получили ежедневный бонус **500$**!\n💰 Ваш баланс: **${user.balance}$**`, { parse_mode: 'Markdown' });
         }
 
         // 3. ПРИЕМ СТАВОК
@@ -165,7 +166,7 @@ bot.on('message', async (msg) => {
             }
 
             if (user.balance < amount) {
-                return await bot.sendMessage(chatId, `❌ Недостаточно средств! Ваш баланс: ${user.balance}$`);
+                return await bot.sendMessage(chatId, `❌ Недостаточно средств! Ваш баланс: **${user.balance}$**`, { parse_mode: 'Markdown' });
             }
 
             if (!isNaN(target) && (parseInt(target) < 0 || parseInt(target) > 36)) {
@@ -182,19 +183,19 @@ bot.on('message', async (msg) => {
                 target
             });
 
-            return await bot.sendMessage(chatId, `✅ **${firstName}** поставил ${amount}$ на "${target}"!\n\n💡 Напишите **го** или **старт**, чтобы запустить рулетку!`, { parse_mode: 'Markdown' });
+            return await bot.sendMessage(chatId, `✅ **${firstName}** поставил **${amount}$** на "${target}"!\n\n💡 Напишите **го** или **старт**, чтобы запустить рулетку!`, { parse_mode: 'Markdown' });
         }
 
-        // 4. ЗАПУСК РУЛЕТКИ
+        // 4. ЗАПУСК РУЛЕТКИ (ПРОКАЧАННЫЙ И ПЛАВНЫЙ!)
         if (text === 'го' || text === 'go' || text === 'старт' || text === 'крутить') {
             if (isSpinning) return;
 
             if (currentBets.length === 0) {
-                return await bot.sendMessage(chatId, '⚠️ Нельзя запустить рулетку без ставок! Сначала сделайте ставку (пример: `100 к`)', { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, '⚠️ Нельзя запустить рулетку без ставок! Сначала сделайте ставку (пример: 100 к)', { parse_mode: 'Markdown' });
             }
 
             isSpinning = true;
-            await bot.sendMessage(chatId, `🎲 Ставки приняты! Запускаем рулетку...`);
+            await bot.sendMessage(chatId, '🎲 Ставки приняты! Запускаем рулетку...');
             
             try {
                 await bot.sendDice(chatId, { emoji: '🎰' });
@@ -202,85 +203,88 @@ bot.on('message', async (msg) => {
                 console.error('[DICE ERROR]', e.message);
             }
 
-            setTimeout(async () => {
-                try {
-                    const num = Math.floor(Math.random() * 37);
-                    let colorStr = num === 0 ? '🟢 0 (Зеро)' : (redNumbers.includes(num) ? `🔴 ${num} (Красное)` : `⚫️ ${num} (Черное)`);
+            // Плавная задержка для интриги
+            await sleep(3800);
+
+            try {
+                const num = Math.floor(Math.random() * 37);
+                let colorStr = num === 0 ? '🟢 0 (Зеро)' : (redNumbers.includes(num) ? `🔴 ${num} (Красное)` : `⚫️ ${num} (Черное)`);
+                
+                if (!Array.isArray(db.history)) db.history = [];
+                db.history.unshift(colorStr);
+                if (db.history.length > 10) db.history = db.history.slice(0, 10);
+
+                let isRed = redNumbers.includes(num);
+                let isBlack = num !== 0 && !isRed;
+                let isEven = num !== 0 && num % 2 === 0;
+                let isOdd = num !== 0 && num % 2 !== 0;
+
+                let userResults = {};
+
+                for (const bet of currentBets) {
+                    if (!userResults[bet.userId]) {
+                        userResults[bet.userId] = {
+                            firstName: bet.firstName,
+                            totalBet: 0,
+                            totalWin: 0
+                        };
+                    }
+
+                    userResults[bet.userId].totalBet += bet.amount;
+
+                    let win = false;
+                    let multiplier = 2;
+
+                    if ((bet.target === 'к' || bet.target === 'красное') && isRed) win = true;
+                    if ((bet.target === 'ч' || bet.target === 'черное') && isBlack) win = true;
+                    if ((bet.target === 'чет' || bet.target === 'четное' || bet.target === 'even') && isEven) win = true;
+                    if ((bet.target === 'нечет' || bet.target === 'нечетное' || bet.target === 'odd') && isOdd) win = true;
                     
-                    if (!Array.isArray(db.history)) db.history = [];
-                    db.history.unshift(colorStr);
-                    if (db.history.length > 10) db.history = db.history.slice(0, 10);
-
-                    let isRed = redNumbers.includes(num);
-                    let isBlack = num !== 0 && !isRed;
-                    let isEven = num !== 0 && num % 2 === 0;
-                    let isOdd = num !== 0 && num % 2 !== 0;
-
-                    let userResults = {};
-
-                    for (const bet of currentBets) {
-                        if (!userResults[bet.userId]) {
-                            userResults[bet.userId] = {
-                                firstName: bet.firstName,
-                                totalBet: 0,
-                                totalWin: 0
-                            };
-                        }
-
-                        userResults[bet.userId].totalBet += bet.amount;
-
-                        let win = false;
-                        let multiplier = 2;
-
-                        if ((bet.target === 'к' || bet.target === 'красное') && isRed) win = true;
-                        if ((bet.target === 'ч' || bet.target === 'черное') && isBlack) win = true;
-                        if ((bet.target === 'чет' || bet.target === 'четное' || bet.target === 'even') && isEven) win = true;
-                        if ((bet.target === 'нечет' || bet.target === 'нечетное' || bet.target === 'odd') && isOdd) win = true;
-                        
-                        if (!isNaN(bet.target) && parseInt(bet.target) === num) {
-                            win = true;
-                            multiplier = 36;
-                        }
-
-                        if (win) {
-                            userResults[bet.userId].totalWin += (bet.amount * multiplier);
-                        }
+                    if (!isNaN(bet.target) && parseInt(bet.target) === num) {
+                        win = true;
+                        multiplier = 36;
                     }
 
-                    let report = `🎰 **Выпало: ${colorStr}!**\n\n📝 **Результаты раунда:**\n`;
-
-                    for (const uId in userResults) {
-                        const res = userResults[uId];
-                        const betUser = getUser(uId);
-
-                        betUser.balance += res.totalWin;
-                        const netProfit = res.totalWin - res.totalBet;
-
-                        if (netProfit > 0) {
-                            report += `🎉 **${res.firstName}**: +${netProfit}$ (Баланс: ${betUser.balance}$)\n`;
-                        } else if (netProfit < 0) {
-                            report += `❌ **${res.firstName}**: ${netProfit}$ (Баланс: ${betUser.balance}$)\n`;
-                        } else {
-                            report += `⚖️ **${res.firstName}**: В нуле (Баланс: ${betUser.balance}$)\n`;
-                        }
+                    if (win) {
+                        userResults[bet.userId].totalWin += (bet.amount * multiplier);
                     }
-
-                    currentBets = [];
-                    isSpinning = false;
-                    saveDB();
-
-                    await bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
-
-                } catch (err) {
-                    isSpinning = false;
-                    currentBets = [];
-                    saveDB();
-                    console.error('[GAME ERROR]', err.message);
                 }
-            }, 3500);
+
+                let report = `🎰 **Выпало: ${colorStr}!**\n\n📝 **Результаты раунда:**\n\n`;
+
+                for (const uId in userResults) {
+                    const res = userResults[uId];
+                    const betUser = getUser(uId);
+
+                    betUser.balance += res.totalWin;
+                    const netProfit = res.totalWin - res.totalBet;
+
+                    if (netProfit > 0) {
+                        report += `🎉 **${res.firstName}**: +${netProfit}$ 💸 (Баланс: ${betUser.balance}$)\n`;
+                    } else if (netProfit < 0) {
+                        report += `❌ **${res.firstName}**: ${netProfit}$ 🔻 (Баланс: ${betUser.balance}$)\n`;
+                    } else {
+                        report += `⚖️ **${res.firstName}**: В нуле 🤝 (Баланс: ${betUser.balance}$)\n`;
+                    }
+                }
+
+                currentBets = [];
+                isSpinning = false;
+                saveDB();
+
+                await bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
+
+            } catch (err) {
+                isSpinning = false;
+                currentBets = [];
+                saveDB();
+                console.error('[GAME ERROR]', err.message);
+            }
         }
 
     } catch (globalErr) {
+        isSpinning = false;
+        currentBets = [];
         console.error('[CRITICAL ERROR]', globalErr.message);
     }
 });
