@@ -12,6 +12,9 @@ http.createServer((req, res) => {
 const token = '8919281816:AAH8kCAj1SCptE1V3CeZA0L6XTWHwZBEllc';
 const dbPath = path.join(__dirname, 'db.json');
 
+// Ссылка на гифку рулетки
+const ROULETTE_GIF = 'https://media.giphy.com/media/26uf2YTgf5ZMvh196/giphy.gif';
+
 let users = {};
 if (fs.existsSync(dbPath)) {
     try {
@@ -39,11 +42,9 @@ function getUser(id) {
     return users[id];
 }
 
-console.log('🎰 Казино RozeGram закрутилось 24/7!');
-
 const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
 
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text ? msg.text.trim().toLowerCase() : '';
     if (!text) return;
@@ -58,6 +59,7 @@ bot.on('message', (msg) => {
         return bot.sendMessage(chatId, `💳 Ваш баланс: ${user.balance}$`);
     }
 
+    // БОНУС
     if (text === 'бонус' || text === 'бонусы') {
         const now = Date.now();
         const cooldown = 24 * 60 * 60 * 1000;
@@ -78,17 +80,20 @@ bot.on('message', (msg) => {
         return bot.sendMessage(chatId, `🎉 Вы получили ежедневный бонус 500$!\n💰 Ваш баланс: ${user.balance}$`);
     }
 
-    const match = text.match(/^(\d+)\s+(к|красное|ч|черное|\d+)$/i);
+    // РУЛЕТКА
+    const match = text.match(/^(\d+)\s+(к|красное|ч|черное|чет|четное|even|нечет|нечетное|odd|\d+)$/i);
     if (match) {
-        if (user.inGame) {
-            return bot.sendMessage(chatId, '⏳ Подождите, ваша рулетка еще крутится!');
-        }
+        if (user.inGame) return;
 
         const amount = parseInt(match[1]);
         const target = match[2];
 
-        if (isNaN(amount) || amount <= 0 || user.balance < amount) {
-            return bot.sendMessage(chatId, '❌ Некорректная сумма ставки или недостаточно средств.');
+        if (isNaN(amount) || amount <= 0) {
+            return bot.sendMessage(chatId, '❌ Ставка должна быть больше 0!');
+        }
+
+        if (user.balance < amount) {
+            return bot.sendMessage(chatId, `❌ Недостаточно средств! Ваш баланс: ${user.balance}$`);
         }
 
         if (!isNaN(target) && (parseInt(target) < 0 || parseInt(target) > 36)) {
@@ -99,16 +104,29 @@ bot.on('message', (msg) => {
         user.balance -= amount;
         saveDB();
 
-        bot.sendMessage(chatId, '🎲 Ставка принята! Крутим рулетку...');
+        // Шлем гифку крутящейся рулетки
+        try {
+            await bot.sendAnimation(chatId, ROULETTE_GIF, {
+                caption: `🎲 Ставка ${amount}$ на "${target}" принята! Шарик запущен...`
+            });
+        } catch (e) {
+            bot.sendMessage(chatId, `🎲 Ставка ${amount}$ принята! Крутим...`);
+        }
 
         setTimeout(() => {
             const num = Math.floor(Math.random() * 37);
             let color = num === 0 ? 'зеленое (зеро)' : (redNumbers.includes(num) ? 'красное' : 'черное');
+            let isEven = num !== 0 && num % 2 === 0;
+            let isOdd = num !== 0 && num % 2 !== 0;
+
             let win = false;
             let multiplier = 2;
 
             if ((target === 'к' || target === 'красное') && color === 'красное') win = true;
             if ((target === 'ч' || target === 'черное') && color === 'черное') win = true;
+            if ((target === 'чет' || target === 'четное' || target === 'even') && isEven) win = true;
+            if ((target === 'нечет' || target === 'нечетное' || target === 'odd') && isOdd) win = true;
+            
             if (!isNaN(target) && parseInt(target) === num) {
                 win = true;
                 multiplier = 36;
@@ -123,8 +141,8 @@ bot.on('message', (msg) => {
                 bot.sendMessage(chatId, `🎰 Выпало: ${num} (${color})!\n🎉 ПОБЕДА! Вы выиграли ${winAmount}$!\n💰 Баланс: ${user.balance}$`);
             } else {
                 saveDB();
-                bot.sendMessage(chatId, `🎰 Выпало: ${num} (${color})!\n❌ Вы проиграли ${amount}$.\n💰 Баланс: ${user.balance}$`);
+                bot.sendMessage(chatId, `🎰 Выпало: ${num} (${color})!\n❌ Проигрыш ${amount}$.\n💰 Баланс: ${user.balance}$`);
             }
-        }, 3000);
+        }, 3500);
     }
 });
