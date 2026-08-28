@@ -3,14 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
-// Фейковый веб-сервер для Render
-const PORT = process.env.PORT || 3000;
+// Веб-сервер с жесткой привязкой к 0.0.0.0 (специально для Render)
+const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('RozeGram Casino 24/7 is Live!');
-}).listen(PORT, () => console.log(`[SERVER] Слушаем порт ${PORT}`));
+}).listen(PORT, '0.0.0.0', () => console.log(`[SERVER] Слушаем порт ${PORT}`));
 
-const token = '8919281816:AAEC3Gt56AqUd8hph4ysy5q1H1_Q9tSLAM8';
+const token = '8919281816:AAH59R8wRTGKP_pV5NTqgFSXAuDen4SmmN0';
 const dbPath = path.join(__dirname, 'db.json');
 
 let db = { users: {}, history: [] };
@@ -61,7 +61,7 @@ bot.on('message', async (msg) => {
         const chatId = msg.chat.id;
         const userId = msg.from ? msg.from.id : null;
         const firstName = msg.from ? msg.from.first_name : 'Игрок';
-        const isPrivate = msg.chat.type === 'private'; // Проверка: личка или группа
+        const isPrivate = msg.chat.type === 'private';
         if (!userId) return;
 
         const text = msg.text ? msg.text.trim().toLowerCase() : '';
@@ -87,7 +87,7 @@ bot.on('message', async (msg) => {
                     { parse_mode: 'Markdown', ...mainMenu }
                 );
             }
-            return; // В группах игнорируем /start
+            return;
         }
 
         // 2. КНОПКА ПРАВИЛ ИГРЫ
@@ -98,7 +98,7 @@ bot.on('message', async (msg) => {
 Ставки принимаются в формате: **[Сумма] [Тип ставки]**
 
 📌 **Примеры ставок:**
-• \`100 к\` или\`100 красное\` — ставка на КРАСНОЕ (X2)
+• \`100 к\` или \`100 красное\` — ставка на КРАСНОЕ (X2)
 • \`200 ч\` или \`200 черное\` — ставка на ЧЕРНОЕ (X2)
 • \`500 чет\` — ставка на ЧЕТНЫЕ числа (X2)
 • \`500 нечет\` — ставка на НЕЧЕТНЫЕ числа (X2)
@@ -172,7 +172,6 @@ bot.on('message', async (msg) => {
                 return await bot.sendMessage(chatId, '⚠️ Число должно быть от 0 до 36.');
             }
 
-            // Списываем ставку
             user.balance -= amount;
             saveDB();
 
@@ -186,7 +185,7 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `✅ **${firstName}** поставил ${amount}$ на "${target}"!\n\n💡 Напишите **го** или **старт**, чтобы запустить рулетку!`, { parse_mode: 'Markdown' });
         }
 
-        // 4. ЗАПУСК РУЛЕТКИ (ТОЛЬКО ЕСЛИ ЕСТЬ СТАВКИ!)
+        // 4. ЗАПУСК РУЛЕТКИ
         if (text === 'го' || text === 'go' || text === 'старт' || text === 'крутить') {
             if (isSpinning) return;
 
