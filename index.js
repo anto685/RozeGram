@@ -9,11 +9,15 @@ http.createServer((req, res) => {
     res.end('RozeGram Casino 24/7 is Live!');
 }).listen(PORT, () => console.log(`Веб-сервер слушает порт ${PORT}`));
 
-const token = '8919281816:AAH8kCAj1SCptE1V3CeZA0L6XTWHwZBEllc';
+// ВСТАВЛЯЙ СЮДА НОВЫЙ ТОКЕН!
+const token = '8919281816:AAGXpokW3RQQgJSs0eiCx3BBnuKyFRjvRY4';
 const dbPath = path.join(__dirname, 'db.json');
 
+// Рабочая прямая ссылка на гифку рулетки
+const ROULETTE_GIF = 'https://media.giphy.com/media/l41YtZOb93VfSi0fK/giphy.gif';
+
 let users = {};
-let history = []; // Массив для истории результатов
+let history = [];
 
 if (fs.existsSync(dbPath)) {
     try {
@@ -36,22 +40,23 @@ function saveDB() {
 
 const bot = new TelegramBot(token, { polling: true });
 
-function getUser(id) {
-    if (!users[id]) {
-        users[id] = { balance: 1000, lastBonus: 0, inGame: false };
+function getUser(userId) {
+    if (!users[userId]) {
+        users[userId] = { balance: 1000, lastBonus: 0, inGame: false };
         saveDB();
     }
-    return users[id];
+    return users[userId];
 }
 
 const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
 
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
+    const userId = msg.from.id;
     const text = msg.text ? msg.text.trim().toLowerCase() : '';
     if (!text) return;
 
-    const user = getUser(chatId);
+    const user = getUser(userId);
 
     if (text === 'тест' || text === 'ping') {
         return bot.sendMessage(chatId, 'Работаю! Казино 24/7!');
@@ -61,13 +66,13 @@ bot.on('message', (msg) => {
         return bot.sendMessage(chatId, `💳 Ваш баланс: ${user.balance}$`);
     }
 
-    // ИСТОРИЯ ВЫПАДЕНИЙ
-    if (text === 'история' || text === 'лог' || text === 'история ставок') {
+    // ИСТОРИЯ
+    if (text === 'история' || text === 'лог') {
         if (history.length === 0) {
-            return bot.sendMessage(chatId, '📜 История рулетки пока пуста!');
+            return bot.sendMessage(chatId, '📜 История рулетки пуста!');
         }
         const historyText = history.map((item, index) => `${index + 1}. ${item}`).join('\n');
-        return bot.sendMessage(chatId, `📜 **Последние выпавшие числа:**\n\n${historyText}`, { parse_mode: 'Markdown' });
+        return bot.sendMessage(chatId, `📜 **Последние 10 чисел:**\n\n${historyText}`, { parse_mode: 'Markdown' });
     }
 
     // БОНУС
@@ -91,7 +96,7 @@ bot.on('message', (msg) => {
         return bot.sendMessage(chatId, `🎉 Вы получили ежедневный бонус 500$!\n💰 Ваш баланс: ${user.balance}$`);
     }
 
-    // РУЛЕТКА
+    // РУЛЕТКА С ГИФКОЙ
     const match = text.match(/^(\d+)\s+(к|красное|ч|черное|чет|четное|even|нечет|нечетное|odd|\d+)$/i);
     if (match) {
         if (user.inGame) return;
@@ -108,21 +113,27 @@ bot.on('message', (msg) => {
         }
 
         if (!isNaN(target) && (parseInt(target) < 0 || parseInt(target) > 36)) {
-            return bot.sendMessage(chatId,'⚠️ Число должно быть от 0 до 36.');
+            return bot.sendMessage(chatId, '⚠️ Число должно быть от 0 до 36.');
         }
 
         user.inGame = true;
         user.balance -= amount;
         saveDB();
 
-        bot.sendMessage(chatId, `🎲 Ставка ${amount}$ принята! Крутим...`);
+        // Отправляем гифку
+        try {
+            await bot.sendAnimation(chatId, ROULETTE_GIF, {
+                caption: `🎲 Ставка ${amount}$ на "${target}" принята! Крутим...`
+            });
+        } catch (e) {
+            bot.sendMessage(chatId, `🎲 Ставка ${amount}$ принята! Крутим...`);
+        }
 
         setTimeout(() => {
             const num = Math.floor(Math.random() * 37);
-            let color = num === 0 ? '🟢 0 (Зеро)' : (redNumbers.includes(num) ? `🔴 ${num} (Красное)` : `⚫️ ${num} (Черное)`);
+            let colorStr = num === 0 ? '🟢 0 (Зеро)' : (redNumbers.includes(num) ? `🔴 ${num} (Красное)` : `⚫️ ${num} (Черное)`);
             
-            // Сохраняем в историю (максимум 10 последних)
-            history.unshift(color);
+            history.unshift(colorStr);
             if (history.length > 10) history.pop();
 
             let isRed = redNumbers.includes(num);
@@ -149,11 +160,11 @@ bot.on('message', (msg) => {
                 const totalWin = amount * multiplier;
                 user.balance += totalWin;
                 saveDB();
-                bot.sendMessage(chatId, `🎰 Выпало: ${color}!\n🎉 ПОБЕДА! Вы выиграли ${totalWin}$!\n💰 Баланс: ${user.balance}$`);
+                bot.sendMessage(chatId, `🎰 Выпало: ${colorStr}!\n🎉 ПОБЕДА! Вы выиграли ${totalWin}$!\n💰 Баланс: ${user.balance}$`);
             } else {
                 saveDB();
-                bot.sendMessage(chatId, `🎰 Выпало: ${color}!\n❌ Проигрыш ${amount}$.\n💰 Баланс: ${user.balance}$`);
+                bot.sendMessage(chatId, `🎰 Выпало: ${colorStr}!\n❌ Проигрыш ${amount}$.\n💰 Баланс: ${user.balance}$`);
             }
-        }, 3000);
+        }, 3500);
     }
 });
