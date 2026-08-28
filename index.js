@@ -9,7 +9,7 @@ http.createServer((req, res) => {
     res.end('RozeGram Casino 24/7 is Live!');
 }).listen(PORT, () => console.log(`Веб-сервер слушает порт ${PORT}`));
 
-const token = 'ВСТАВЬ_СВОЙ_ТОКЕН_СЮДА';
+const token = '8919281816:AAH8kCAj1SCptE1V3CeZA0L6XTWHwZBEllc';
 const dbPath = path.join(__dirname, 'db.json');
 
 let users = {};
