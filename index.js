@@ -3,17 +3,17 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
+// Фейковый веб-сервер для Render
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('RozeGram Casino 24/7 is Live!');
 }).listen(PORT, () => console.log(`[SERVER] Слушаем порт ${PORT}`));
 
-const token = '8919281816:AAGXpokW3RQQgJSs0eiCx3BBnuKyFRjvRY4';
+const token = '8919281816:AAEC3Gt56AqUd8hph4ysy5q1H1_Q9tSLAM8';
 const dbPath = path.join(__dirname, 'db.json');
 
 let db = { users: {}, history: [] };
-// Очередь ставок текущего стола
 let currentBets = []; 
 let isSpinning = false;
 
@@ -61,6 +61,7 @@ bot.on('message', async (msg) => {
         const chatId = msg.chat.id;
         const userId = msg.from ? msg.from.id : null;
         const firstName = msg.from ? msg.from.first_name : 'Игрок';
+        const isPrivate = msg.chat.type === 'private'; // Проверка: личка или группа
         if (!userId) return;
 
         const text = msg.text ? msg.text.trim().toLowerCase() : '';
@@ -68,11 +69,54 @@ bot.on('message', async (msg) => {
 
         const user = getUser(userId);
 
-        if (text === 'тест' || text === 'ping') {
-            return await bot.sendMessage(chatId, '⚙️ Казик на базе! Все системы в норме.');
+        // 1. КОМАНДА /START (ТОЛЬКО В ЛИЧКЕ!)
+        if (text === '/start') {
+            if (isPrivate) {
+                const mainMenu = {
+                    reply_markup: {
+                        keyboard: [
+                            [{ text: '💳 Баланс' }, { text: '🎁 Бонус' }],
+                            [{ text: '📖 Правила игры' }]
+                        ],
+                        resize_keyboard: true
+                    }
+                };
+                return await bot.sendMessage(
+                    chatId, 
+                    `🎰 **Добро пожаловать в казино RozeGram!**\n\nПривет, ${firstName}! Рады видеть тебя за нашим столом.\n💰 Твой начальный баланс: **${user.balance}$**\n\nДобавь бота в свою беседу с друзьями или играй прямо здесь! Пользуйся меню ниже 👇`, 
+                    { parse_mode: 'Markdown', ...mainMenu }
+                );
+            }
+            return; // В группах игнорируем /start
         }
 
-        if (text === 'баланс' || text === 'бал') {
+        // 2. КНОПКА ПРАВИЛ ИГРЫ
+        if (text === '📖 правила игры' || text === 'правила') {
+            const rulesText = 
+`🎰 **ПРАВИЛА ИГРЫ В КАЗИНО ROZEGRAM** 🎲
+
+Ставки принимаются в формате: **[Сумма] [Тип ставки]**
+
+📌 **Примеры ставок:**
+• \`100 к\` или\`100 красное\` — ставка на КРАСНОЕ (X2)
+• \`200 ч\` или \`200 черное\` — ставка на ЧЕРНОЕ (X2)
+• \`500 чет\` — ставка на ЧЕТНЫЕ числа (X2)
+• \`500 нечет\` — ставка на НЕЧЕТНЫЕ числа (X2)
+• \`300 12\` — ставка на ТОЧНОЕ число от 0 до 36 (X36!)
+
+🚀 **Как запустить игру:**
+После того как вы (и ваши друзья в беседе) сделали ставки, напишите слово **го**, **старт** или **крутить**!
+
+⚠️ *При выпадении Зеро (0) ставки на красное/черное и чет/нечет сгорают!*`;
+
+            return await bot.sendMessage(chatId, rulesText, { parse_mode: 'Markdown' });
+        }
+
+        if (text === 'тест' || text === 'ping') {
+            return await bot.sendMessage(chatId, '⚙️ Модуль казино активен! Все системы в норме.');
+        }
+
+        if (text === 'баланс' || text === 'бал' || text === '💳 баланс') {
             return await bot.sendMessage(chatId, `💳 Ваш баланс: ${user.balance}$`);
         }
 
@@ -86,7 +130,7 @@ bot.on('message', async (msg) => {
         }
 
         // БОНУС
-        if (text === 'бонус' || text === 'бонусы') {
+        if (text === 'бонус' || text === 'бонусы' || text === '🎁 бонус') {
             const now = Date.now();
             const cooldown = 24 * 60 * 60 * 1000;
             const lastBonus = user.lastBonus || 0;
@@ -96,7 +140,7 @@ bot.on('message', async (msg) => {
                 const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
                 const minutesLeft = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
                 
-                return await bot.sendMessage(chatId, `⏳ Забрать бонус можно через ${hoursLeft}ч. и ${minutesLeft} мин.`);
+                return await bot.sendMessage(chatId, `⏳ Забрать бонус можно через ${hoursLeft} ч. и ${minutesLeft} мин.`);
             }
 
             user.balance += 500;
@@ -106,7 +150,7 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `🎉 Вы получили ежедневный бонус 500$!\n💰 Ваш баланс: ${user.balance}$`);
         }
 
-        // 1. ПРИЕМ СТАВКИ (Пример: "100 к", "500 чет", "300 12")
+        // 3. ПРИЕМ СТАВОК
         const match = text.match(/^(\d+)\s+(к|красное|ч|черное|чет|четное|even|нечет|нечетное|odd|\d+)$/i);
         if (match) {
             if (isSpinning) {
@@ -128,7 +172,7 @@ bot.on('message', async (msg) => {
                 return await bot.sendMessage(chatId, '⚠️ Число должно быть от 0 до 36.');
             }
 
-            // Списываем баланс и добавляем в банк стола
+            // Списываем ставку
             user.balance -= amount;
             saveDB();
 
@@ -142,16 +186,16 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `✅ **${firstName}** поставил ${amount}$ на "${target}"!\n\n💡 Напишите **го** или **старт**, чтобы запустить рулетку!`, { parse_mode: 'Markdown' });
         }
 
-        // 2. ЗАПУСК РУЛЕТКИ (Команды: "го", "go", "старт", "крутить")
+        // 4. ЗАПУСК РУЛЕТКИ (ТОЛЬКО ЕСЛИ ЕСТЬ СТАВКИ!)
         if (text === 'го' || text === 'go' || text === 'старт' || text === 'крутить') {
             if (isSpinning) return;
 
             if (currentBets.length === 0) {
-                return await bot.sendMessage(chatId, '❌ На столе нет ставок! Сначала сделайте ставку (например: `100 к`)', { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, '⚠️ Нельзя запустить рулетку без ставок! Сначала сделайте ставку (пример: `100 к`)', { parse_mode: 'Markdown' });
             }
 
             isSpinning = true;
-            await bot.sendMessage(chatId, `🎲 Ставки сделаны! Запускаем рулетку...`);
+            await bot.sendMessage(chatId, `🎲 Ставки приняты! Запускаем рулетку...`);
             
             try {
                 await bot.sendDice(chatId, { emoji: '🎰' });
@@ -164,7 +208,6 @@ bot.on('message', async (msg) => {
                     const num = Math.floor(Math.random() * 37);
                     let colorStr = num === 0 ? '🟢 0 (Зеро)' : (redNumbers.includes(num) ? `🔴 ${num} (Красное)` : `⚫️ ${num} (Черное)`);
                     
-                    // Обновляем историю
                     if (!Array.isArray(db.history)) db.history = [];
                     db.history.unshift(colorStr);
                     if (db.history.length > 10) db.history = db.history.slice(0, 10);
@@ -174,11 +217,19 @@ bot.on('message', async (msg) => {
                     let isEven = num !== 0 && num % 2 === 0;
                     let isOdd = num !== 0 && num % 2 !== 0;
 
-                    let report = `🎰 **Выпало: ${colorStr}!**\n\n📝 **Результаты раунда:**\n`;
+                    let userResults = {};
 
-                    // Подсчет результатов для каждого игрока
                     for (const bet of currentBets) {
-                        const betUser = getUser(bet.userId);
+                        if (!userResults[bet.userId]) {
+                            userResults[bet.userId] = {
+                                firstName: bet.firstName,
+                                totalBet: 0,
+                                totalWin: 0
+                            };
+                        }
+
+                        userResults[bet.userId].totalBet += bet.amount;
+
                         let win = false;
                         let multiplier = 2;
 
@@ -187,20 +238,34 @@ bot.on('message', async (msg) => {
                         if ((bet.target === 'чет' || bet.target === 'четное' || bet.target === 'even') && isEven) win = true;
                         if ((bet.target === 'нечет' || bet.target === 'нечетное' || bet.target === 'odd') && isOdd) win = true;
                         
-                        if (!isNaN(bet.target) && parseInt(bet.target) === num) {win = true;
+                        if (!isNaN(bet.target) && parseInt(bet.target) === num) {
+                            win = true;
                             multiplier = 36;
                         }
 
                         if (win) {
-                            const totalWin = bet.amount * multiplier;
-                            betUser.balance += totalWin;
-                            report += `🎉 ${bet.firstName}: +${totalWin}$ (Баланс: ${betUser.balance}$)\n`;
-                        } else {
-                            report += `❌ ${bet.firstName}: -${bet.amount}$ (Баланс: ${betUser.balance}$)\n`;
+                            userResults[bet.userId].totalWin += (bet.amount * multiplier);
                         }
                     }
 
-                    // Очищаем стол для новых ставок
+                    let report = `🎰 **Выпало: ${colorStr}!**\n\n📝 **Результаты раунда:**\n`;
+
+                    for (const uId in userResults) {
+                        const res = userResults[uId];
+                        const betUser = getUser(uId);
+
+                        betUser.balance += res.totalWin;
+                        const netProfit = res.totalWin - res.totalBet;
+
+                        if (netProfit > 0) {
+                            report += `🎉 **${res.firstName}**: +${netProfit}$ (Баланс: ${betUser.balance}$)\n`;
+                        } else if (netProfit < 0) {
+                            report += `❌ **${res.firstName}**: ${netProfit}$ (Баланс: ${betUser.balance}$)\n`;
+                        } else {
+                            report += `⚖️ **${res.firstName}**: В нуле (Баланс: ${betUser.balance}$)\n`;
+                        }
+                    }
+
                     currentBets = [];
                     isSpinning = false;
                     saveDB();
