@@ -33,7 +33,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://garbonretoy_db_user:Su
 const CHANNEL_USERNAME = '@anloMorze2k26';
 const CHANNEL_LINK = 'https://t.me/anloMorze2k26';
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
-const ADMIN_ID = 8082980072; // Твой Telegram ID 👑
+const ADMIN_ID = 6947353037; // Твой Telegram ID 👑
 
 mongoose.set('strictQuery', false);
 const connectDB = async () => {
