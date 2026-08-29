@@ -28,7 +28,7 @@ setInterval(() => {
 // 2. КОНФИГУРАЦИЯ И БАЗА ДАННЫХ
 // ==========================================
 const token = process.env.BOT_TOKEN || '8919281816:AAGLh6HcaeOLnr_ZmGosZL9FqfUpgyqkTmI';
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://garbonretoy_db_user:bXWzU1GE8uFprUpD@cluster0.lk3ngtu.mongodb.net/RozegramDB?retryWrites=true&w=majority';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://garbonretoy_db_user:SuperPass12345@cluster0.lk3ngtu.mongodb.net/RozegramDB?retryWrites=true&w=majority';
 
 const CHANNEL_USERNAME = '@anloMorze2k26';
 const CHANNEL_LINK = 'https://t.me/anloMorze2k26';
