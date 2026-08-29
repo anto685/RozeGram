@@ -2,21 +2,57 @@ const TelegramBot = require('node-telegram-bot-api');
 const mongoose = require('mongoose');
 const http = require('http');
 
+// ==========================================
+// 1. СЕРВЕР И АНТИ-СПЛИТ (ЧТОБЫ РЕНДЕР НЕ СПАЛ)
+// ==========================================
 const PORT = process.env.PORT || 10000;
-http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('RozeGram Casino Engine Active!');
-}).listen(PORT, '0.0.0.0', () => console.log(`[SERVER] Engine running on port ${PORT}`));
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('RozeGram Casino Engine v2.0 Unstable - ONLINE 🎰');
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[SERVER] Engine running on port ${PORT}`);
+});
+
+// Авто-пинг каждые 4 минуты, чтобы Render не засыпал
+setInterval(() => {
+    if (RENDER_URL.startsWith('http')) {
+        http.get(RENDER_URL, (res) => {}).on('error', (err) => {});
+    }
+}, 4 * 60 * 1000);
+
+// ==========================================
+// 2. КОНФИГУРАЦИЯ И БАЗА ДАННЫХ
+// ==========================================
 const token = process.env.BOT_TOKEN || '8919281816:AAGLh6HcaeOLnr_ZmGosZL9FqfUpgyqkTmI';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://garbonretoy_db_user:bXWzU1GE8uFprUpD@cluster0.lk3ngtu.mongodb.net/RozegramDB?retryWrites=true&w=majority';
 
-const CHANNEL_USERNAME = '@anloMorze2k26'; 
+const CHANNEL_USERNAME = '@anloMorze2k26';
 const CHANNEL_LINK = 'https://t.me/anloMorze2k26';
-const CHAT_LINK = 'https://t.me/+CoDIQuyOcMc2YTFi';
-
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
 
+// Железобетонное подключение к MongoDB
+mongoose.set('strictQuery', false);
+const connectDB = async () => {
+    try {
+        await mongoose.connect(MONGO_URI, {
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
+        });
+        console.log('[CLOUD DB] Успешное подключение к MongoDB Atlas!');
+    } catch (err) {
+        console.error('[CLOUD DB ERROR] Ошибка подключения:', err.message);
+        setTimeout(connectDB, 5000); // Авто-повтор при сбое
+    }
+};
+connectDB();
+
+// ==========================================
+// 3. СХЕМЫ ДАННЫХ (MONGOOSE MODELS)
+// ==========================================
 const userSchema = new mongoose.Schema({
     userId: { type: Number, required: true, unique: true },
     firstName: { type: String, default: 'Игрок' },
@@ -32,18 +68,38 @@ const User = mongoose.model('User', userSchema);
 const History = mongoose.model('History', historySchema);
 const System = mongoose.model('System', systemSchema);
 
-mongoose.connect(MONGO_URI)
-    .then(() => console.log('[CLOUD DB] Успешное подключение к MongoDB Atlas!'))
-    .catch((err) => console.error('[CLOUD DB ERROR]', err.message));
-
-let currentBets = []; 
-let lastRoundBets = {}; 
-let userBetCooldowns = {}; 
+// ==========================================
+// 4. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И БОТ
+// ==========================================
+let currentBets = [];
+let lastRoundBets = {};
+let userBetCooldowns = {};
 let isSpinning = false;
 
 const bot = new TelegramBot(token, { polling: true });
-bot.on('polling_error', (err) => console.error(`[POLLING ERROR] ${err.code}: ${err.message}`));
 
+bot.on('polling_error', (err) => {
+    if (!err.message.includes('409 Conflict')) {
+        console.error(`[POLLING ERROR] ${err.code}: ${err.message}`);
+    }
+});
+
+// Хелперы
+const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const mainKeyboard = {reply_markup: {
+        keyboard: [
+            [{ text: '💰 Баланс' }, { text: '🎁 Бонус' }],
+            [{ text: '🏆 Турнир' }, { text: '📖 Правила игры' }]
+        ],
+        resize_keyboard: true
+    }
+};
+
+const TOURNAMENT_PRIZES = [1000000, 500000, 300000, 200000, 100000, 75000, 50000, 30000, 20000, 10000];
+
+// Атомарное получение/создание юзера
 async function getUser(userId, firstName = 'Игрок') {
     try {
         let user = await User.findOne({ userId });
@@ -55,6 +111,7 @@ async function getUser(userId, firstName = 'Игрок') {
         }
         return user;
     } catch (e) {
+        console.error('[GET USER ERROR]', e.message);
         return { userId, firstName, balance: 1000, lastBonus: 0, tournamentProfit: 0, save: async () => {} };
     }
 }
@@ -78,21 +135,7 @@ async function checkSubscription(userId) {
     }
 }
 
-const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-const mainKeyboard = {
-    reply_markup: {
-        keyboard: [
-            [{ text: '💰 Баланс' }, { text: '🎁 Бонус' }],
-            [{ text: '🏆 Турнир' }, { text: '📖 Правила игры' }]
-        ],
-        resize_keyboard: true
-    }
-};
-
-const TOURNAMENT_PRIZES = [1000000, 500000, 300000, 200000, 100000, 75000, 50000, 30000, 20000, 10000];
-
+// Сброс турнира в 00:00
 async function checkTournamentReset() {
     try {
         const now = new Date();
@@ -120,6 +163,9 @@ async function checkTournamentReset() {
 }
 setInterval(checkTournamentReset, 60000);
 
+// ==========================================
+// 5. ОБРАБОТКА CALLBACK QUERY (КНОПКИ)
+// ==========================================
 bot.on('callback_query', async (query) => {
     try {
         if (query.message && query.message.date < BOT_START_TIME) return;
@@ -183,7 +229,8 @@ bot.on('callback_query', async (query) => {
             let addedText = [];
             for (const oldBet of userLastBets) {
                 const newAmount = oldBet.amount * multiplier;
-                currentBets.push({ userId, firstName, amount: newAmount, target: oldBet.target });addedText.push(`${newAmount.toLocaleString('ru-RU')} Roze на ${oldBet.target}`);
+                currentBets.push({ userId, firstName, amount: newAmount, target: oldBet.target });
+                addedText.push(`${newAmount.toLocaleString('ru-RU')} Roze на ${oldBet.target}`);
             }
 
             await bot.answerCallbackQuery(query.id, { text: 'Ставка принята' });
@@ -194,6 +241,9 @@ bot.on('callback_query', async (query) => {
     }
 });
 
+// ==========================================
+// 6. ОБРАБОТКА СООБЩЕНИЙ (ОСНОВНОЙ БЛОК)
+// ==========================================
 bot.on('message', async (msg) => {
     try {
         if (msg.date < BOT_START_TIME) return;
@@ -308,7 +358,9 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, rulesText, { parse_mode: 'Markdown', ...(isPrivate ? mainKeyboard : {}) });
         }
 
-        // 🎲 ИГРА В БЫСТРЫЙ КУБИК (ТЕПЕРЬ РАБОТАЕТ В ЛЮБОМ ЧАТЕ!)
+        // ==========================================
+        // 7. ИГРА В КУБИК (ФИКС БАЛАНСА И СЕЙВА)
+        // ==========================================
         const diceMatch = text.match(/^(\d+)\s+куб\s+(1|2|3|4|5|6|чет|нечет)$/);
         if (diceMatch) {
             if (isPrivate) return await bot.sendMessage(chatId, `⚠️ **Играть нужно в чате!**`);
@@ -326,6 +378,7 @@ bot.on('message', async (msg) => {
                 return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
             }
 
+            // Жестко списываем баланс
             user.balance -= betAmount;
             user.tournamentProfit -= betAmount;
             await user.save();
@@ -334,6 +387,9 @@ bot.on('message', async (msg) => {
             const diceValue = diceMsg.dice.value;
 
             await sleep(3000);
+
+            // Переполучаем свежего юзера из БД, чтобы не было рассинхрона!
+            const freshUser = await getUser(userId, firstName);
 
             let isWin = false;
             let winMultiplier = 0;
@@ -348,17 +404,18 @@ bot.on('message', async (msg) => {
 
             if (isWin) {
                 const winSum = betAmount * winMultiplier;
-                user.balance += winSum;
-                user.tournamentProfit += winSum;
-                await user.save();
-                return await bot.sendMessage(chatId, `🎲 **Выпало: ${diceValue}**\n🎉 **${firstName}**, победа! +${winSum.toLocaleString('ru-RU')} Roze 💰 (Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**)`, { parse_mode: 'Markdown' });
+                freshUser.balance += winSum;
+                freshUser.tournamentProfit += winSum;
+                await freshUser.save(); // ЖЕЛЕЗНЫЙ СЕЙВ
+                return await bot.sendMessage(chatId, `🎲 **Выпало: ${diceValue}**\n🎉 **${firstName}**, победа! +${winSum.toLocaleString('ru-RU')} Roze 💰 (Баланс: **${freshUser.balance.toLocaleString('ru-RU')} Roze 💰**)`, { parse_mode: 'Markdown' });
             } else {
-                await user.save();
-                return await bot.sendMessage(chatId, `🎲 **Выпало: ${diceValue}**\n❌ **${firstName}**, мимо! -${betAmount.toLocaleString('ru-RU')} Roze 💰 (Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**)`, { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, `🎲 **Выпало: ${diceValue}**\n❌ **${firstName}**, мимо! -${betAmount.toLocaleString('ru-RU')} Roze 💰 (Баланс: **${freshUser.balance.toLocaleString('ru-RU')} Roze 💰**)`, { parse_mode: 'Markdown' });
             }
         }
 
-        // 🎯 ПАРСЕР СТАВОК РУЛЕТКИ (РАБОТАЕТ В ЛЮБЫХ ГРУППАХ!)
+        // ==========================================
+        // 8. ПАРСЕР СТАВОК РУЛЕТКИ
+        // ==========================================
         const parts = text.split(/\s+/);
         let numbersSum = 0;
         let targets = [];
@@ -415,10 +472,11 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `✅ **${firstName}**: ${placedText.join(', ')}`, { parse_mode: 'Markdown' });
         }
 
-        // 🎲 ЗАПУСК РУЛЕТКИ В ЛЮБОМ ЧАТЕ
+        // ==========================================
+        // 9. ЗАПУСК РУЛЕТКИ
+        // ==========================================
         if (text === 'го' || text === 'go' || text === 'старт' || text === 'крутить') {
-            if (isPrivate) return;
-            if (isSpinning) return;
+            if (isPrivate || isSpinning) return;
             if (currentBets.length === 0) return await bot.sendMessage(chatId, '⚠️ Сначала сделайте ставку');
 
             isSpinning = true;
