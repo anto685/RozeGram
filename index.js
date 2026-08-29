@@ -17,7 +17,6 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`[SERVER] Engine running on port ${PORT}`);
 });
 
-// Авто-пинг каждые 4 минуты, чтобы Render не засыпал
 setInterval(() => {
     if (RENDER_URL.startsWith('http')) {
         http.get(RENDER_URL, (res) => {}).on('error', (err) => {});
@@ -33,8 +32,8 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://garbonretoy_db_user:Su
 const CHANNEL_USERNAME = '@anloMorze2k26';
 const CHANNEL_LINK = 'https://t.me/anloMorze2k26';
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
+const ADMIN_ID = 6947353037; // Твой Telegram ID 👑
 
-// Железобетонное подключение к MongoDB
 mongoose.set('strictQuery', false);
 const connectDB = async () => {
     try {
@@ -84,7 +83,6 @@ bot.on('polling_error', (err) => {
     }
 });
 
-// Хелперы
 const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -135,7 +133,6 @@ async function checkSubscription(userId) {
     }
 }
 
-// Сброс турнира в 00:00
 async function checkTournamentReset() {
     try {
         const now = new Date();
@@ -164,7 +161,7 @@ async function checkTournamentReset() {
 setInterval(checkTournamentReset, 60000);
 
 // ==========================================
-// 5. ОБРАБОТКА CALLBACK QUERY (КНОПКИ)
+// 5. ОБРАБОТКА CALLBACK QUERY
 // ==========================================
 bot.on('callback_query', async (query) => {
     try {
@@ -200,8 +197,7 @@ bot.on('callback_query', async (query) => {
             user.lastBonus = now;
             await user.save();
 
-            try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-            await bot.answerCallbackQuery(query.id, { text: '🎉 +10 000 Roze 💰 зачислено!' });
+            try { await bot.deleteMessage(chatId, messageId); } catch (e) {}await bot.answerCallbackQuery(query.id, { text: '🎉 +10 000 Roze 💰 зачислено!' });
             return await bot.sendMessage(chatId, `🎉 **Подписка подтверждена! Зачислено +10 000 Roze 💰!**\nТвой баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown', ...mainKeyboard });
         }
 
@@ -271,6 +267,34 @@ bot.on('message', async (msg) => {
         }
 
         // ==========================================
+        // 👑 АДМИНКА: ВЫДАЧА БАБЛА (ТОЛЬКО ДЛЯ СОЗДАТЕЛЯ)
+        // ==========================================
+        const giveSelfMatch = text.match(/^(?:себе|админ)\s+(\d+)$/);
+        if (giveSelfMatch && userId === ADMIN_ID) {
+            const amount = parseInt(giveSelfMatch[1]);
+            user.balance += amount;
+            await user.save();
+            return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Начислено **+${amount.toLocaleString('ru-RU')} Roze 💰** на твой баланс!`, { parse_mode: 'Markdown' });
+        }
+
+        const giveOtherMatch = text.match(/^(?:выдать|начислить)\s+(\d+)$/);
+        if (giveOtherMatch && userId === ADMIN_ID) {
+            if (!msg.reply_to_message || !msg.reply_to_message.from) {
+                return await bot.sendMessage(chatId, `⚠️ **Админ**, ответь на сообщение того, кому хочешь выдать Roze!`, { parse_mode: 'Markdown' });
+            }
+
+            const targetUserId = msg.reply_to_message.from.id;
+            const targetFirstName = msg.reply_to_message.from.first_name || 'Игрок';
+            const amount = parseInt(giveOtherMatch[1]);
+
+            const recipient = await getUser(targetUserId, targetFirstName);
+            recipient.balance += amount;
+            await recipient.save();
+
+            return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Игроку **${targetFirstName}** зачислено **+${amount.toLocaleString('ru-RU')} Roze 💰**!`, { parse_mode: 'Markdown' });
+        }
+
+        // ==========================================
         // 💸 ПЕРЕДАЧА ROZE МЕЖДУ ИГРОКАМИ (ПЕРЕВОД)
         // ==========================================
         const payMatch = text.match(/^(?:\/pay|передать|перевод|отдать)\s+(\d+)$/);
@@ -289,7 +313,7 @@ bot.on('message', async (msg) => {
             }
 
             if (msg.reply_to_message.from.is_bot) {
-                return await bot.sendMessage(chatId, `❌ **${firstName}**, ботам деньги не нужны, они виртуальные! 🤖`, { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, `❌ **${firstName}**, ботам деньги не нужны! 🤖`, { parse_mode: 'Markdown' });
             }
 
             const amount = parseInt(payMatch[1]);
@@ -337,8 +361,7 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, leaderboardText, { parse_mode: 'Markdown', ...(isPrivate ? mainKeyboard : {}) });
         }
 
-        if (text === 'бонус' || text === 'бонусы' || text === '🎁 бонус') {
-            if (!isPrivate) return await bot.sendMessage(chatId, `🎁 **${firstName}**, забрать бонус можно только в ЛС бота!`, { parse_mode: 'Markdown' });
+        if (text === 'бонус' || text === 'бонусы' || text === '🎁 бонус') {if (!isPrivate) return await bot.sendMessage(chatId, `🎁 **${firstName}**, забрать бонус можно только в ЛС бота!`, { parse_mode: 'Markdown' });
             
             const isSubbed = await checkSubscription(userId);
             if (!isSubbed) {
