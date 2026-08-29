@@ -1,16 +1,17 @@
 const TelegramBot = require('node-telegram-bot-api');
 const mongoose = require('mongoose');
 const http = require('http');
+const crypto = require('crypto');
 
 // ==========================================
-// 1. СЕРВЕР И АНТИ-СПЛИТ (ЧТОБЫ РЕНДЕР НЕ СПАЛ)
+// 1. СЕРВЕР И АНТИ-СПЛИТ (RENDER KEEP-ALIVE)
 // ==========================================
 const PORT = process.env.PORT || 10000;
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('RozeGram Casino Engine v2.0 Unstable - ONLINE 🎰');
+    res.end('RozeGram Casino Engine v3.0 Ultra Fat - ONLINE 🎰');
 });
 
 server.listen(PORT, '0.0.0.0', () => {
@@ -19,20 +20,20 @@ server.listen(PORT, '0.0.0.0', () => {
 
 setInterval(() => {
     if (RENDER_URL.startsWith('http')) {
-        http.get(RENDER_URL, (res) => {}).on('error', (err) => {});
+        http.get(RENDER_URL, () => {}).on('error', () => {});
     }
 }, 4 * 60 * 1000);
 
 // ==========================================
 // 2. КОНФИГУРАЦИЯ И БАЗА ДАННЫХ
 // ==========================================
-const token = process.env.BOT_TOKEN || '8919281816:AAFJl-QUVwa9iUJ5c3UjD-0n4c0tghcmAEw';
+const token = process.env.BOT_TOKEN || '8919281816:AAHpFyVQvzRwwfpX-6PDHGpg3walL0eLHB0';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://garbonretoy_db_user:SuperPass12345@cluster0.lk3ngtu.mongodb.net/RozegramDB?retryWrites=true&w=majority';
 
 const CHANNEL_USERNAME = '@anloMorze2k26';
 const CHANNEL_LINK = 'https://t.me/anloMorze2k26';
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
-const ADMIN_ID = 6947353037; // Твой Telegram ID 👑
+const ADMIN_ID = 8082980072; // Твой Telegram ID 👑
 
 mongoose.set('strictQuery', false);
 const connectDB = async () => {
@@ -61,7 +62,10 @@ const userSchema = new mongoose.Schema({
 });
 
 const historySchema = new mongoose.Schema({ results: { type: [String], default: [] } });
-const systemSchema = new mongoose.Schema({ lastResetDate: { type: String, default: '' } });
+const systemSchema = new mongoose.Schema({ 
+    lastResetDate: { type: String, default: '' },
+    jackpot: { type: Number, default: 500000 }
+});
 
 const User = mongoose.model('User', userSchema);
 const History = mongoose.model('History', historySchema);
@@ -98,6 +102,7 @@ const mainKeyboard = {
 
 const TOURNAMENT_PRIZES = [1000000, 500000, 300000, 200000, 100000, 75000, 50000, 30000, 20000, 10000];
 
+// Вспомогательные асинхронные функции
 async function getUser(userId, firstName = 'Игрок') {
     try {
         let user = await User.findOne({ userId });
@@ -124,6 +129,16 @@ async function getHistory() {
     }
 }
 
+async function getSystem() {
+    try {
+        let sys = await System.findOne();
+        if (!sys) sys = await System.create({ lastResetDate: '', jackpot: 500000 });
+        return sys;
+    } catch (e) {
+        return { lastResetDate: '', jackpot: 500000, save: async () => {} };
+    }
+}
+
 async function checkSubscription(userId) {
     try {
         const member = await bot.getChatMember(CHANNEL_USERNAME, userId);
@@ -133,14 +148,14 @@ async function checkSubscription(userId) {
     }
 }
 
+// Авто-сброс суточного турнира
 async function checkTournamentReset() {
     try {
         const now = new Date();
         const currentDateStr = now.toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' });
         const currentHour = now.toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' });
 
-        let sys = await System.findOne();
-        if (!sys) sys = await System.create({ lastResetDate: currentDateStr });
+        let sys = await getSystem();
 
         if (sys.lastResetDate !== currentDateStr && currentHour === '00:00') {
             const topUsers = await User.find({ tournamentProfit: { $gt: 0 } }).sort({ tournamentProfit: -1 }).limit(10);
@@ -190,23 +205,22 @@ bot.on('callback_query', async (query) => {
                 const m = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
                 try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
                 await bot.answerCallbackQuery(query.id, { text: 'Подписка подтверждена!' });
-                return await bot.sendMessage(chatId, `⏳ Бонус уже забран! Приходи через **${h}ч ${m}м**`, { parse_mode: 'Markdown', ...mainKeyboard });
+                return await bot.sendMessage(chatId, `⏳ Бонус уже забран! Приходи через <b>${h}ч ${m}м</b>`, { parse_mode: 'HTML', ...mainKeyboard });
             }
 
             user.balance += 10000;
             user.lastBonus = now;
             await user.save();
 
-            try { await bot.deleteMessage(chatId, messageId); } catch (e) {}await bot.answerCallbackQuery(query.id, { text: '🎉 +10 000 Roze 💰 зачислено!' });
-            return await bot.sendMessage(chatId, `🎉 **Подписка подтверждена! Зачислено +10 000 Roze 💰!**\nТвой баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown', ...mainKeyboard });
+            try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+            await bot.answerCallbackQuery(query.id, { text: '🎉 +10 000 Roze 💰 зачислено!' });
+            return await bot.sendMessage(chatId, `🎉 <b>Подписка подтверждена! Зачислено +10 000 Roze 💰!</b>\nТвой баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML', ...mainKeyboard });
         }
 
         if (action === 'repeat_bet' || action === 'double_bet') {
             if (isSpinning) return await bot.answerCallbackQuery(query.id, { text: 'Игра идет!', show_alert: true });
 
-            const user = await getUser(userId, firstName);
             const userLastBets = lastRoundBets[userId];
-
             if (!userLastBets || userLastBets.length === 0) {
                 return await bot.answerCallbackQuery(query.id, { text: 'Нет ставок с прошлого раунда!', show_alert: true });
             }
@@ -214,13 +228,16 @@ bot.on('callback_query', async (query) => {
             let multiplier = (action === 'repeat_bet') ? 1 : 2;
             let totalCost = userLastBets.reduce((sum, b) => sum + (b.amount * multiplier), 0);
 
-            if (user.balance < totalCost) {
-                return await bot.answerCallbackQuery(query.id, { text: `Нужно ${totalCost.toLocaleString('ru-RU')} Roze, баланс: ${user.balance.toLocaleString('ru-RU')} Roze`, show_alert: true });
-            }
+            // Атомарное списание средств напрямую из MongoDB
+            const updatedUser = await User.findOneAndUpdate(
+                { userId, balance: { $gte: totalCost } },
+                { $inc: { balance: -totalCost, tournamentProfit: -totalCost } },
+                { new: true }
+            );
 
-            user.balance -= totalCost;
-            user.tournamentProfit -= totalCost;
-            await user.save();
+            if (!updatedUser) {
+                return await bot.answerCallbackQuery(query.id, { text: `Нужно ${totalCost.toLocaleString('ru-RU')} Roze, не хватает баланса!`, show_alert: true });
+            }
 
             let addedText = [];
             for (const oldBet of userLastBets) {
@@ -230,7 +247,7 @@ bot.on('callback_query', async (query) => {
             }
 
             await bot.answerCallbackQuery(query.id, { text: 'Ставка принята' });
-            await bot.sendMessage(chatId, `🎰 **${firstName}** ${action === 'repeat_bet' ? 'повторил' : 'удвоил'} (${totalCost.toLocaleString('ru-RU')} Roze): ${addedText.join(', ')}`);
+            await bot.sendMessage(chatId, `🎰 <b>${firstName}</b> ${action === 'repeat_bet' ? 'повторил' : 'удвоил'} (${totalCost.toLocaleString('ru-RU')} Roze): ${addedText.join(', ')}`, { parse_mode: 'HTML' });
         }
     } catch (e) {
         console.error('[CALLBACK ERROR]', e.message);
@@ -259,8 +276,8 @@ bot.on('message', async (msg) => {
             if (isPrivate) {
                 return await bot.sendMessage(
                     chatId, 
-                    `🎰 **Добро пожаловать в RozeGram Casino!**\n\nПривет, **${firstName}**!\nБаланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**\n\nИспользуй меню ниже для проверки баланса и бонусов 👇`, 
-                    { parse_mode: 'Markdown', ...mainKeyboard }
+                    `🎰 <b>Добро пожаловать в RozeGram Casino Ultra!</b>\n\nПривет, <b>${firstName}</b>!\nБаланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>\n\nИспользуй меню ниже для игры 👇`, 
+                    { parse_mode: 'HTML', ...mainKeyboard }
                 );
             }
             return;
@@ -272,26 +289,22 @@ bot.on('message', async (msg) => {
         const giveSelfMatch = text.match(/^(?:себе|админ)\s+(\d+)$/);
         if (giveSelfMatch && userId === ADMIN_ID) {
             const amount = parseInt(giveSelfMatch[1]);
-            user.balance += amount;
-            await user.save();
-            return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Начислено **+${amount.toLocaleString('ru-RU')} Roze 💰** на твой баланс!`, { parse_mode: 'Markdown' });
+            await User.findOneAndUpdate({ userId }, { $inc: { balance: amount } });
+            return await bot.sendMessage(chatId, `👑 <b>Админ-выдача!</b> Начислено <b>+${amount.toLocaleString('ru-RU')} Roze 💰</b> на твой баланс!`, { parse_mode: 'HTML' });
         }
 
         const giveOtherMatch = text.match(/^(?:выдать|начислить)\s+(\d+)$/);
         if (giveOtherMatch && userId === ADMIN_ID) {
             if (!msg.reply_to_message || !msg.reply_to_message.from) {
-                return await bot.sendMessage(chatId, `⚠️ **Админ**, ответь на сообщение того, кому хочешь выдать Roze!`, { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, `⚠️ <b>Админ</b>, ответь на сообщение того, кому хочешь выдать Roze!`, { parse_mode: 'HTML' });
             }
 
             const targetUserId = msg.reply_to_message.from.id;
             const targetFirstName = msg.reply_to_message.from.first_name || 'Игрок';
             const amount = parseInt(giveOtherMatch[1]);
 
-            const recipient = await getUser(targetUserId, targetFirstName);
-            recipient.balance += amount;
-            await recipient.save();
-
-            return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Игроку **${targetFirstName}** зачислено **+${amount.toLocaleString('ru-RU')} Roze 💰**!`, { parse_mode: 'Markdown' });
+            await User.findOneAndUpdate({ userId: targetUserId }, { $inc: { balance: amount } }, { upsert: true });
+            return await bot.sendMessage(chatId, `👑 <b>Админ-выдача!</b> Игроку <b>${targetFirstName}</b> зачислено <b>+${amount.toLocaleString('ru-RU')} Roze 💰</b>!`, { parse_mode: 'HTML' });
         }
 
         // ==========================================
@@ -302,66 +315,77 @@ bot.on('message', async (msg) => {
             if (isPrivate) return await bot.sendMessage(chatId, `⚠️ Переводить Roze можно только в чате!`);
 
             if (!msg.reply_to_message || !msg.reply_to_message.from) {
-                return await bot.sendMessage(chatId, `⚠️ **${firstName}**, ответь командой на сообщение того, кому хочешь передать Roze!`, { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, `⚠️ <b>${firstName}</b>, ответь командой на сообщение того, кому хочешь передать Roze!`, { parse_mode: 'HTML' });
             }
 
             const targetUserId = msg.reply_to_message.from.id;
             const targetFirstName = msg.reply_to_message.from.first_name || 'Игрок';
 
             if (targetUserId === userId) {
-                return await bot.sendMessage(chatId, `❌ **${firstName}**, нельзя переводить Roze самому себе! 😂`, { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, `❌ <b>${firstName}</b>, нельзя переводить Roze самому себе! 😂`, { parse_mode: 'HTML' });
             }
 
             if (msg.reply_to_message.from.is_bot) {
-                return await bot.sendMessage(chatId, `❌ **${firstName}**, ботам деньги не нужны! 🤖`, { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, `❌ <b>${firstName}</b>, ботам деньги не нужны! 🤖`, { parse_mode: 'HTML' });
             }
 
             const amount = parseInt(payMatch[1]);
             if (amount <= 0) return await bot.sendMessage(chatId, `❌ Сумма должна быть больше 0!`);
 
-            if (user.balance < amount) {
-                return await bot.sendMessage(chatId, `❌ Нехватка средств! Твой баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
+            // Атомарный перевод
+            const sender = await User.findOneAndUpdate(
+                { userId, balance: { $gte: amount } },
+                { $inc: { balance: -amount } },
+                { new: true }
+            );
+
+            if (!sender) {
+                return await bot.sendMessage(chatId, `❌ Нехватка средств! Твой баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML' });
             }
 
-            const recipient = await getUser(targetUserId, targetFirstName);
-
-            user.balance -= amount;
-            recipient.balance += amount;
-
-            await user.save();
-            await recipient.save();
+            await User.findOneAndUpdate({ userId: targetUserId }, { $inc: { balance: amount } }, { upsert: true });
 
             return await bot.sendMessage(
                 chatId, 
-                `💸 **Успешный перевод!**\n\n👤 **${firstName}** перевел **${amount.toLocaleString('ru-RU')} Roze 💰** для **${targetFirstName}**!\n\n💰 Твой остаток: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, 
-                { parse_mode: 'Markdown' }
+                `💸 <b>Успешный перевод!</b>\n\n👤 <b>${firstName}</b> перевел <b>${amount.toLocaleString('ru-RU')} Roze 💰</b> для <b>${targetFirstName}</b>!\n\n💰 Твой остаток: <b>${sender.balance.toLocaleString('ru-RU')} Roze 💰</b>`, 
+                { parse_mode: 'HTML' }
             );
         }
 
+        // ==========================================
+        // 🏆 ТУРНИР И ЛИДЕРБОРД
+        // ==========================================
         if (text === '🏆 турнир' || text === 'турнир' || text === 'топ') {
             const topUsers = await User.find().sort({ tournamentProfit: -1 }).limit(10);
-            let leaderboardText = `🏆 **Суточный Турнир RozeGram**\n🔴⚫️ **ROZE ROULETTE** 🔴⚫️\n\n` +
+            const sys = await getSystem();
+
+            let leaderboardText = `🏆 <b>Суточный Турнир RozeGram</b>\n🔴⚫️ <b>ROZE ROULETTE</b> 🔴⚫️\n\n` +
+            `💥 <b>Текущий ДЖЕКПОТ БАНК:</b> ${sys.jackpot.toLocaleString('ru-RU')} Roze 💰\n\n` +
             `Турнир длится 1 день (обнуление в 00:00).\n` +
-            `Участие автоматическое! Засчитывается **чистая прибыль**.\n\n` +
-            `🎁 **Призы ТОП-10:**\n` +
+            `Участие автоматическое! Засчитывается <b>чистая прибыль</b>.\n\n` +
+            `🎁 <b>Призы ТОП-3:</b>\n` +
             `🥇 1,000,000 Roze 💰\n🥈 500,000 Roze 💰\n🥉 300,000 Roze 💰\n\n` +
-            `📊 **Текущий ТОП Лидеров:**\n`;
+            `📊 <b>Текущий ТОП Лидеров:</b>\n`;
 
             if (topUsers.length === 0 || topUsers[0].tournamentProfit <= 0) {
-                leaderboardText += `_Пока нет активных участников с плюсовым профитом._`;
+                leaderboardText += `<i>Пока нет активных участников с плюсовым профитом.</i>`;
             } else {
                 topUsers.forEach((u, idx) => {
                     if (u.tournamentProfit > 0) {
                         const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
-                        leaderboardText += `${medal} **${u.firstName}** ➔ +${u.tournamentProfit.toLocaleString('ru-RU')} Roze 💰\n`;
+                        leaderboardText += `${medal} <b>${u.firstName}</b> ➔ +${u.tournamentProfit.toLocaleString('ru-RU')} Roze 💰\n`;
                     }
                 });
             }
 
-            return await bot.sendMessage(chatId, leaderboardText, { parse_mode: 'Markdown', ...(isPrivate ? mainKeyboard : {}) });
+            return await bot.sendMessage(chatId, leaderboardText, { parse_mode: 'HTML', ...(isPrivate ? mainKeyboard : {}) });
         }
 
-        if (text === 'бонус' || text === 'бонусы' || text === '🎁 бонус') {if (!isPrivate) return await bot.sendMessage(chatId, `🎁 **${firstName}**, забрать бонус можно только в ЛС бота!`, { parse_mode: 'Markdown' });
+        // ==========================================
+        // 🎁 БОНУСЫ, БАЛАНС И ПРАВИЛА
+        // ==========================================
+        if (text === 'бонус' || text === 'бонусы' || text === '🎁 бонус') {
+            if (!isPrivate) return await bot.sendMessage(chatId, `🎁 <b>${firstName}</b>, забрать бонус можно только в ЛС бота!`, { parse_mode: 'HTML' });
             
             const isSubbed = await checkSubscription(userId);
             if (!isSubbed) {
@@ -373,7 +397,7 @@ bot.on('message', async (msg) => {
                         ]
                     }
                 };
-                return await bot.sendMessage(chatId, `❌ **Для получения бонуса необходимо быть подписанным на наш канал!**`, { parse_mode: 'Markdown', ...subMenu });
+                return await bot.sendMessage(chatId, `❌ <b>Для получения бонуса необходимо быть подписанным на наш канал!</b>`, { parse_mode: 'HTML', ...subMenu });
             }
 
             const now = Date.now();
@@ -384,177 +408,157 @@ bot.on('message', async (msg) => {
                 const timeLeft = cooldown - (now - lastBonus);
                 const h = Math.floor(timeLeft / (1000 * 60 * 60));
                 const m = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-                return await bot.sendMessage(chatId, `⏳ Бонус доступен через **${h}ч ${m}м**`, { parse_mode: 'Markdown', ...mainKeyboard });
+                return await bot.sendMessage(chatId, `⏳ Бонус доступен через <b>${h}ч ${m}м</b>`, { parse_mode: 'HTML', ...mainKeyboard });
             }
 
             user.balance += 10000;
             user.lastBonus = now;
             await user.save();
-            return await bot.sendMessage(chatId, `🎉 Зачислено **+10 000 Roze 💰**! Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown', ...mainKeyboard });
+            return await bot.sendMessage(chatId, `🎉 Зачислено <b>+10 000 Roze 💰</b>! Баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML', ...mainKeyboard });
         }
 
         if (text === 'баланс' || text === 'бал' || text === '💰 баланс') {
-            if (isPrivate) {
-                return await bot.sendMessage(chatId, `💰 Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown', ...mainKeyboard });
-            } else {
-                return await bot.sendMessage(chatId, `💰 **${firstName}**, твой баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
-            }
+            return await bot.sendMessage(chatId, `💰 <b>${firstName}</b>, твой баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML', ...(isPrivate ? mainKeyboard : {}) });
         }
 
         if (text === 'история' || text === 'лог') {
             const histDoc = await getHistory();
             if (!histDoc.results || histDoc.results.length === 0) return await bot.sendMessage(chatId, '📜 История пуста');
             const historyText = histDoc.results.map((item, index) => `${index + 1}. ${item}`).join('\n');
-            return await bot.sendMessage(chatId, `📜 **История:**\n\n${historyText}`, { parse_mode: 'Markdown' });
+            return await bot.sendMessage(chatId, `📜 <b>История последних спинов:</b>\n\n${historyText}`, { parse_mode: 'HTML' });
         }
 
         if (text === '📖 правила игры' || text === 'правила') {
             const rulesText = 
-`🎰 **Правила RozeGram Casino**
+`🎰 <b>Правила RozeGram Ultra Casino</b>
 
 Примеры ставок (Рулетка):
-• \`100 к\` / \`100 ч\` — RED / BLACK (x2)
-• \`500 чет\` / \`500 нечет\` — EVEN / ODD (x2)
-• \`300 12\` — Число (x36)
+• <code>100 к</code> / <code>100 ч</code> — RED / BLACK (x2)
+• <code>500 чет</code> / <code>500 нечет</code> — EVEN / ODD (x2)
+• <code>300 0</code> — ZERO (БОНУС x50!) 🟢
+• <code>300 12</code> — Число (x36)
 
-🎲 Быстрый кубик (1-6):
-• \`100 куб 6\` — Ставка на число (x6)
-• \`200 куб чет\` / \`200 куб нечет\` (x2)
+🎲 Быстрый кубик (1-6) + ДЖЕКПОТ:
+• <code>100 куб 6</code> — Ставка на число (x6)• <code>200 куб чет</code> / <code>200 куб нечет</code> (x2)
 
 💸 Перевод баланса:
-• \`передать 500\` (ответом на сообщение)
+• <code>передать 500</code> (ответом на сообщение)
 
-Старт рулетки: го`;
-            return await bot.sendMessage(chatId, rulesText, { parse_mode: 'Markdown', ...(isPrivate ? mainKeyboard : {}) });
+Старт рулетки: <b>го</b>`;
+            return await bot.sendMessage(chatId, rulesText, { parse_mode: 'HTML', ...(isPrivate ? mainKeyboard : {}) });
         }
 
         // ==========================================
-        // 7. ИГРА В КУБИК
+        // 7. ИГРА В КУБИК (КРИПТО-РАНДОМ + ДЖЕКПОТ)
         // ==========================================
         const diceMatch = text.match(/^(\d+)\s+куб\s+(1|2|3|4|5|6|чет|нечет)$/);
         if (diceMatch) {
-            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ **Играть нужно в чате!**`);
+            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ <b>Играть нужно в чате!</b>`, { parse_mode: 'HTML' });
 
             const now = Date.now();
-            if (now - (userBetCooldowns[userId] || 0) < 3000) {
-                return await bot.sendMessage(chatId, `⚠️ **${firstName}**, не спам! Подожди 3 сек.`, { parse_mode: 'Markdown' });
+            if (now - (userBetCooldowns[userId] || 0) < 2500) {
+                return await bot.sendMessage(chatId, `⚠️ <b>${firstName}</b>, не спам! Подожди 2.5 сек.`, { parse_mode: 'HTML' });
             }
             userBetCooldowns[userId] = now;
 
             const betAmount = parseInt(diceMatch[1]);
             const target = diceMatch[2];
 
-            if (user.balance < betAmount) {
-                return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
+            // Атомарное списание ставки
+            const updatedUser = await User.findOneAndUpdate(
+                { userId, balance: { $gte: betAmount } },
+                { $inc: { balance: -betAmount } },
+                { new: true }
+            );
+
+            if (!updatedUser) {
+                return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML' });
             }
 
-            user.balance -= betAmount;
-            user.tournamentProfit -= betAmount;
-            await user.save();
+            // Наполнение джекпота на 5% от ставки
+            const sys = await getSystem();
+            const jackpotAdd = Math.floor(betAmount * 0.05);
+            sys.jackpot += jackpotAdd;
 
-            const diceMsg = await bot.sendDice(chatId, { emoji: '🎲' });
-            const diceValue = diceMsg.dice.value;
+            // Честный криптографический рандом (1-6)
+            const roll = crypto.randomInt(1, 7);
+            let win = false;
+            let multiplier = 0;
 
-            await sleep(3000);
+            if (target === 'чет' && roll % 2 === 0) { win = true; multiplier = 2; }
+            else if (target === 'нечет' && roll % 2 !== 0) { win = true; multiplier = 2; }
+            else if (parseInt(target) === roll) { win = true; multiplier = 6; }
 
-            const freshUser = await getUser(userId, firstName);
+            let report = `🎲 <b>${firstName}</b> бросил кубик! Выпало: <b>[ ${roll} ]</b>\n`;
 
-            let isWin = false;
-            let winMultiplier = 0;
-
-            if (!isNaN(target) && parseInt(target) === diceValue) {
-                isWin = true; winMultiplier = 6;
-            } else if (target === 'чет' && diceValue % 2 === 0) {
-                isWin = true; winMultiplier = 2;
-            } else if (target === 'нечет' && diceValue % 2 !== 0) {
-                isWin = true; winMultiplier = 2;
-            }
-
-            if (isWin) {
-                const winSum = betAmount * winMultiplier;
-                freshUser.balance += winSum;
-                freshUser.tournamentProfit += winSum;
-                await freshUser.save();
-                return await bot.sendMessage(chatId, `🎲 **Выпало: ${diceValue}**\n🎉 **${firstName}**, победа! +${winSum.toLocaleString('ru-RU')} Roze 💰 (Баланс: **${freshUser.balance.toLocaleString('ru-RU')} Roze 💰**)`, { parse_mode: 'Markdown' });
-            } else {
-                return await bot.sendMessage(chatId, `🎲 **Выпало: ${diceValue}**\n❌ **${firstName}**, мимо! -${betAmount.toLocaleString('ru-RU')} Roze 💰 (Баланс: **${freshUser.balance.toLocaleString('ru-RU')} Roze 💰**)`, { parse_mode: 'Markdown' });
-            }
-        }
-
-        // ==========================================
-        // 8. ПАРСЕР СТАВОК РУЛЕТКИ
-        // ==========================================
-        const parts = text.split(/\s+/);
-        let numbersSum = 0;
-        let targets = [];
-        let hasBetTrigger = false;
-
-        for (const p of parts) {
-            if (!isNaN(p) && !p.includes('-')) {
-                numbersSum += parseInt(p);
-            } else if (p.match(/^(\d+)-(\d+)$/)) {
-                targets.push(p); hasBetTrigger = true;
-            } else if (['к', 'красное', 'red', 'ч', 'черное', 'black', 'чет', 'четное', 'even', 'нечет', 'нечетное', 'odd'].includes(p)) {
-                targets.push(p); hasBetTrigger = true;
-            } else if (!isNaN(p) && parseInt(p) >= 0 && parseInt(p) <= 36) {
-                targets.push(p); hasBetTrigger = true;
-            }
-        }
-
-        if (hasBetTrigger && numbersSum > 0 && targets.length > 0) {
-            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ **Ставки делаются в чате!**`);
-            if (isSpinning) return await bot.sendMessage(chatId, '⏳ Рулетка крутится!');
-
-            const now = Date.now();
-            if (now - (userBetCooldowns[userId] || 0) < 3000) {
-                return await bot.sendMessage(chatId, `⚠️ **${firstName}**, не спам! Подожди 3 сек.`, { parse_mode: 'Markdown' });
-            }
-            userBetCooldowns[userId] = now;
-
-            const betPerTarget = numbersSum; 
-            const totalRequired = betPerTarget * targets.length;
-
-            if (user.balance < totalRequired) {
-                return await bot.sendMessage(chatId, `❌ Нехватка средств! Нужно: **${totalRequired.toLocaleString('ru-RU')} Roze 💰**, баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
-            }
-
-            for (const t of targets) {
-                if (t.includes('-')) {
-                    const [s, e] = t.split('-').map(Number);
-                    if (s < 0 || e > 36 || s >= e) {
-                        return await bot.sendMessage(chatId, `❌ Ошибка в диапазоне "${t}"`, { parse_mode: 'Markdown' });
-                    }
+            if (win) {
+                let winAmount = betAmount * multiplier;
+                
+                // 5% шанс сорвать Джекпот, если выпала 6
+                if (roll === 6 && crypto.randomInt(1, 101) <= 5) {
+                    const jackpotWin = sys.jackpot;
+                    winAmount += jackpotWin;
+                    sys.jackpot = 100000; // Сброс банка
+                    report += `💥 <b>СОРВАН ДЖЕКПОТ! +${jackpotWin.toLocaleString('ru-RU')} Roze 💰!!</b>\n`;
                 }
+
+                await User.findOneAndUpdate(
+                    { userId }, 
+                    { $inc: { balance: winAmount, tournamentProfit: winAmount } }
+                );
+
+                report += `✅ Победа! Выигрыш: <b>+${winAmount.toLocaleString('ru-RU')} Roze 💰</b>`;
+            } else {
+                report += `❌ Проигрыш! Вы потеряли ${betAmount.toLocaleString('ru-RU')} Roze.`;
             }
 
-            user.balance -= totalRequired;
-            user.tournamentProfit -= totalRequired;
-            await user.save();
-
-            let placedText = [];
-            for (const t of targets) {
-                currentBets.push({ userId, firstName, amount: betPerTarget, target: t });
-                placedText.push(`${betPerTarget.toLocaleString('ru-RU')} Roze на ${t}`);
-            }
-
-            return await bot.sendMessage(chatId, `✅ **${firstName}**: ${placedText.join(', ')}`, { parse_mode: 'Markdown' });
+            await sys.save();
+            return await bot.sendMessage(chatId, report, { parse_mode: 'HTML' });
         }
 
         // ==========================================
-        // 9. ЗАПУСК РУЛЕТКИ
+        // 8. ПРИЕМ СТАВОК В РУЛЕТКУ
+        // ==========================================
+        const rouletteMatch = text.match(/^(\d+)\s+(к|ч|красное|черное|red|black|чет|нечет|четное|нечетное|even|odd|\d{1,2})$/);
+        if (rouletteMatch && !isSpinning) {
+            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ <b>Играть нужно в чате!</b>`, { parse_mode: 'HTML' });
+
+            const betAmount = parseInt(rouletteMatch[1]);
+            const target = rouletteMatch[2];
+
+            if (target.match(/^\d+$/) && (parseInt(target) < 0 || parseInt(target) > 36)) {
+                return await bot.sendMessage(chatId, `❌ Число должно быть от 0 до 36!`);
+            }
+
+            const updatedUser = await User.findOneAndUpdate({ userId, balance: { $gte: betAmount } },
+                { $inc: { balance: -betAmount, tournamentProfit: -betAmount } },
+                { new: true }
+            );
+
+            if (!updatedUser) {
+                return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML' });
+            }
+
+            currentBets.push({ userId, firstName, amount: betAmount, target });
+            return await bot.sendMessage(chatId, `✅ <b>${firstName}</b> поставил <b>${betAmount.toLocaleString('ru-RU')} Roze</b> на [<b>${target.toUpperCase()}</b>]`, { parse_mode: 'HTML' });
+        }
+
+        // ==========================================
+        // 9. ЗАПУСК РУЛЕТКИ (С КРИПТО-РАНДОМОМ)
         // ==========================================
         if (text === 'го' || text === 'go' || text === 'старт' || text === 'крутить') {
             if (isPrivate || isSpinning) return;
-            if (currentBets.length === 0) return await bot.sendMessage(chatId, '⚠️ Сначала сделайте ставку');
+            if (currentBets.length === 0) return await bot.sendMessage(chatId, '⚠️ Сначала сделайте ставку!');
 
             isSpinning = true;
-            await bot.sendMessage(chatId, '🎲 Крутим...');
+            await bot.sendMessage(chatId, '🎲 <b>Рулетка крутится... Удачи!</b>', { parse_mode: 'HTML' });
 
             try { await bot.sendDice(chatId, { emoji: '🎰' }); } catch (e) {}
             await sleep(3800);
 
             try {
-                const num = Math.floor(Math.random() * 37);
+                // Честный криптографический запуск рулетки (0-36)
+                const num = crypto.randomInt(0, 37);
                 let colorEmoji = num === 0 ? '🟢' : (redNumbers.includes(num) ? '🔴' : '⚫️');
 
                 const histDoc = await getHistory();
@@ -568,24 +572,12 @@ bot.on('message', async (msg) => {
                 let isOdd = num !== 0 && num % 2 !== 0;
 
                 lastRoundBets = {}; 
-                let report = `Рулетка: ${num}${colorEmoji}\n`;
+                let report = `🎰 <b>Результат Рулетки:</b> [ <b>${num} ${colorEmoji}</b> ]\n\n`;
 
                 for (const bet of currentBets) {
                     if (!lastRoundBets[bet.userId]) lastRoundBets[bet.userId] = [];
                     lastRoundBets[bet.userId].push(bet);
 
-                    let displayTarget = bet.target.toUpperCase();
-                    if (['К', 'КРАСНОЕ'].includes(displayTarget)) displayTarget = 'RED';
-                    if (['Ч', 'ЧЕРНОЕ'].includes(displayTarget)) displayTarget = 'BLACK';
-                    if (['ЧЕТ', 'ЧЕТНОЕ', 'EVEN'].includes(displayTarget)) displayTarget = 'EVEN';
-                    if (['НЕЧЕТ', 'НЕЧЕТНОЕ', 'ODD'].includes(displayTarget)) displayTarget = 'ODD';
-
-                    report += `${bet.firstName} ${bet.amount.toLocaleString('ru-RU')} Roze на ${displayTarget}\n`;
-                }
-
-                report += `\n`;
-
-                for (const bet of currentBets) {
                     let win = false;
                     let multiplier = 0;
                     const t = bet.target.toLowerCase();
@@ -594,32 +586,20 @@ bot.on('message', async (msg) => {
                     else if ((t === 'ч' || t === 'черное' || t === 'black') && isBlack) { win = true; multiplier = 2; }
                     else if ((t === 'чет' || t === 'четное' || t === 'even') && isEven) { win = true; multiplier = 2; }
                     else if ((t === 'нечет' || t === 'нечетное' || t === 'odd') && isOdd) { win = true; multiplier = 2; }
-                    else if (!isNaN(t) && parseInt(t) === num) { win = true; multiplier = 36; }
-                    else if (t.includes('-')) {
-                        const [s, e] = t.split('-').map(Number);
-                        if (num >= s && num <= e) {
-                            win = true;
-                            multiplier = 36 / ((e - s) + 1);
-                        }
+                    else if (!isNaN(t) && parseInt(t) === num) { 
+                        win = true; 
+                        multiplier = (num === 0) ? 50 : 36; // Жирный бонус х50 на ЗЕРО!
                     }
-
-                    const betUser = await getUser(bet.userId, bet.firstName);
 
                     if (win) {
                         const winAmount = Math.floor(bet.amount * multiplier);
-                        betUser.balance += winAmount;
-                        betUser.tournamentProfit += winAmount;
-                        await betUser.save();
-
-                        let displayTarget = bet.target.toUpperCase();
-                        if (['К', 'КРАСНОЕ'].includes(displayTarget)) displayTarget = 'RED';
-                        if (['Ч', 'ЧЕРНОЕ'].includes(displayTarget)) displayTarget = 'BLACK';
-                        if (['ЧЕТ', 'ЧЕТНОЕ', 'EVEN'].includes(displayTarget)) displayTarget = 'EVEN';
-                        if (['НЕЧЕТ', 'НЕЧЕТНОЕ', 'ODD'].includes(displayTarget)) displayTarget = 'ODD';
-
-                        report += `${bet.firstName} ставка ${bet.amount.toLocaleString('ru-RU')} Roze выиграл ${winAmount.toLocaleString('ru-RU')} на ${displayTarget}\n`;
+                        await User.findOneAndUpdate(
+                            { userId: bet.userId },
+                            { $inc: { balance: winAmount, tournamentProfit: winAmount } }
+                        );
+                        report += `✅ <b>${bet.firstName}</b> выбил <b>+${winAmount.toLocaleString('ru-RU')} Roze</b> на [${bet.target.toUpperCase()}]\n`;
                     } else {
-                        await betUser.save();
+                        report += `❌ <b>${bet.firstName}</b> проиграл ${bet.amount.toLocaleString('ru-RU')} Roze [${bet.target.toUpperCase()}]\n`;
                     }
                 }
 
@@ -628,16 +608,15 @@ bot.on('message', async (msg) => {
 
                 const actionButtons = {
                     reply_markup: {
-                        inline_keyboard: [
-                            [
-                                { text: 'Повторить', callback_data: 'repeat_bet' },
-                                { text: 'Удвоить', callback_data: 'double_bet' }
+                        inline_keyboard: [[
+                                { text: '🔄 Повторить', callback_data: 'repeat_bet' },
+                                { text: '⚡️ Удвоить', callback_data: 'double_bet' }
                             ]
                         ]
                     }
                 };
 
-                await bot.sendMessage(chatId, report.trim(), actionButtons);
+                await bot.sendMessage(chatId, report.trim(), { parse_mode: 'HTML', ...actionButtons });
 
             } catch (err) {
                 isSpinning = false;
