@@ -1,17 +1,16 @@
 const TelegramBot = require('node-telegram-bot-api');
 const mongoose = require('mongoose');
 const http = require('http');
-const crypto = require('crypto');
 
 // ==========================================
-// 1. СЕРВЕР И АНТИ-СПЛИТ (RENDER KEEP-ALIVE)
+// 1. СЕРВЕР И АНТИ-СПЛИТ
 // ==========================================
 const PORT = process.env.PORT || 10000;
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('RozeGram Casino Engine v5.0 Master - ONLINE 🎰');
+    res.end('RozeGram Casino Engine v3.0 Ultimate - ONLINE 🎰');
 });
 
 server.listen(PORT, '0.0.0.0', () => {
@@ -27,13 +26,13 @@ setInterval(() => {
 // ==========================================
 // 2. КОНФИГУРАЦИЯ И БАЗА ДАННЫХ
 // ==========================================
-const token = process.env.BOT_TOKEN || '8919281816:AAFJl-QUVwa9iUJ5c3UjD-0n4c0tghcmAEw';
+const token = process.env.BOT_TOKEN || '8919281816:AAFBc2Y0HAJnWPiBJO-ThUwI7fCWIDAY8gI';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://garbonretoy_db_user:SuperPass12345@cluster0.lk3ngtu.mongodb.net/RozegramDB?retryWrites=true&w=majority';
 
 const CHANNEL_USERNAME = '@anloMorze2k26';
 const CHANNEL_LINK = 'https://t.me/anloMorze2k26';
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
-const ADMIN_ID = 6947353037;
+const ADMIN_ID = 6947353037; // Твой обновленный ID 👑
 
 mongoose.set('strictQuery', false);
 const connectDB = async () => {
@@ -56,28 +55,32 @@ connectDB();
 const userSchema = new mongoose.Schema({
     userId: { type: Number, required: true, unique: true },
     firstName: { type: String, default: 'Игрок' },
-    username: { type: String, default: '' },
     balance: { type: Number, default: 1000 },
     lastBonus: { type: Number, default: 0 },
     tournamentProfit: { type: Number, default: 0 }
 });
 
 const historySchema = new mongoose.Schema({ results: { type: [String], default: [] } });
+const systemSchema = new mongoose.Schema({ lastResetDate: { type: String, default: '' } });
+
 const User = mongoose.model('User', userSchema);
 const History = mongoose.model('History', historySchema);
+const System = mongoose.model('System', systemSchema);
 
 // ==========================================
-// 4. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// 4. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 // ==========================================
 let currentBets = [];
 let lastRoundBets = {};
-let userGoCooldowns = {};
+let userBetCooldowns = {};
 let isSpinning = false;
+let spinSafetyTimer = null;
+let activeMinesGames = {}; // Состояния игры в "Мины"
 
 const bot = new TelegramBot(token, { polling: true });
 
 bot.on('polling_error', (err) => {
-    if (!err.message.includes('409 Conflict') && !err.message.includes('401')) {
+    if (!err.message.includes('409 Conflict')) {
         console.error(`[POLLING ERROR] ${err.code}: ${err.message}`);
     }
 });
@@ -85,36 +88,37 @@ bot.on('polling_error', (err) => {
 const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-function getUserTag(user) {
-    if (user.username) return `@${user.username}`;
-    return `<a href="tg://user?id=${user.userId}">${user.firstName || 'Игрок'}</a>`;
+// Функция для красивого синего тега по имени
+function mentionUser(userId, name) {
+    const safeName = name.replace(/[*_`\[\]()]/g, '');
+    return `[${safeName}](tg://user?id=${userId})`;
 }
 
 const mainKeyboard = {
     reply_markup: {
         keyboard: [
-            [{ text: '💰 б' }, { text: '🎁 Бонус' }],
-            [{ text: '🎮 Игры' }, { text: '🏆 Турнир' }],
-            [{ text: '📖 Правила игры' }]
+            [{ text: '💰 Баланс' }, { text: '🎁 Бонус' }],
+            [{ text: '🏆 Турнир' }, { text: '📖 Правила игры' }]
         ],
         resize_keyboard: true
     }
 };
 
-async function getUser(userId, firstName = 'Игрок', username = '') {
+const TOURNAMENT_PRIZES = [1000000, 500000, 300000, 200000, 100000, 75000, 50000, 30000, 20000, 10000];
+
+async function getUser(userId, firstName = 'Игрок') {
     try {
         let user = await User.findOne({ userId });
         if (!user) {
-            user = await User.create({ userId, firstName, username, balance: 1000, lastBonus: 0, tournamentProfit: 0 });
-        } else {
-            let updated = false;
-            if (firstName && user.firstName !== firstName) { user.firstName = firstName; updated = true; }
-            if (username !== undefined && user.username !== username) { user.username = username; updated = true; }
-            if (updated) await user.save();
+            user = await User.create({ userId, firstName, balance: 1000, lastBonus: 0, tournamentProfit: 0 });
+        } else if (firstName !== 'Игрок' && user.firstName !== firstName) {
+            user.firstName = firstName;
+            await user.save();
         }
         return user;
     } catch (e) {
-        return { userId, firstName, username, balance: 1000, lastBonus: 0, tournamentProfit: 0, save: async () => {} };
+        console.error('[GET USER ERROR]', e.message);
+        return { userId, firstName, balance: 1000, lastBonus: 0, tournamentProfit: 0, save: async () => {} };
     }
 }
 
@@ -128,44 +132,66 @@ async function getHistory() {
     }
 }
 
-// ------------------------------------------
-// 🧠 ВСПОМОГАТЕЛЬНЫЙ МОДУЛЬ: ДИАПАЗОНЫ РУЛЕТКИ
-// ------------------------------------------
-function parseRanges(targetStr) {
-    // Парсит диапазоны вида "2-8,12-18"
-    const parts = targetStr.split(',');
-    const coveredNumbers = new Set();
+async function checkSubscription(userId) {
+    try {
+        const member = await bot.getChatMember(CHANNEL_USERNAME, userId);
+        return ['creator', 'administrator', 'member'].includes(member.status);
+    } catch (e) {
+        return false;
+    }
+}
 
-    for (let part of parts) {
-        part = part.trim();
-        const rangeMatch = part.match(/^(\d{1,2})-(\d{1,2})$/);
-        if (!rangeMatch) return null; // Неверный формат
-
-        const start = parseInt(rangeMatch[1]);
-        const end = parseInt(rangeMatch[2]);
-
-        // Валидация: от 0 до 36 и start <= end
-        if (start < 0 || end > 36 || start > end) return null;
-
-        for (let i = start; i <= end; i++) {
-            coveredNumbers.add(i);
+// 🛡 ЛЮТАЯ ЗАЩИТА: Автовозврат денег при лаге/зависании бота
+async function emergencyRefund(chatId, reason = 'Ошибка сервера') {
+    if (currentBets.length === 0) {
+        isSpinning = false;
+        return;
+    }
+    console.log(`[SAFETY SYSTEM] Запущен автовозврат ставок. Причина: ${reason}`);
+    for (const bet of currentBets) {
+        try {
+            const betUser = await getUser(bet.userId, bet.firstName);
+            betUser.balance += bet.amount;
+            betUser.tournamentProfit += bet.amount;
+            await betUser.save();
+        } catch (e) {
+            console.error('[REFUND ERROR]', e.message);
         }
     }
-
-    if (coveredNumbers.size === 0) return null;
-
-    const count = coveredNumbers.size;
-    const multiplier = parseFloat((36 / count).toFixed(2));
-
-    return {
-        numbers: Array.from(coveredNumbers),
-        count,
-        multiplier
-    };
+    currentBets = [];
+    isSpinning = false;
+    if (spinSafetyTimer) clearTimeout(spinSafetyTimer);
+    try {
+        await bot.sendMessage(chatId, `🚨 **[Система Защиты]** Произошел сбой или таймаут (${reason}). Все ставки успешно возвращены игрокам!`, { parse_mode: 'Markdown' });
+    } catch (e) {}
 }
 
 // ==========================================
-// 5. ОБРАБОТКА CALLBACK QUERY
+// 5. МИНЫ (ГЕНЕРАЦИЯ КНОПОК)
+// ==========================================
+function generateMinesKeyboard(game) {
+    let inline_keyboard = [];
+    for (let r = 0; r < 3; r++) {
+        let row = [];
+        for (let c = 0; c < 3; c++) {
+            const idx = r * 3 + c;
+            let btnText = '❓';
+            if (game.revealed[idx]) {
+                btnText = game.board[idx] === 'MINE' ? '💥' : '💎';
+            }
+            row.push({ text: btnText, callback_data: `mine_click_${idx}` });
+        }
+        row.push();
+        inline_keyboard.push(row);
+    }
+    if (!game.gameOver) {
+        inline_keyboard.push([{ text: `💰 Забрать (${Math.floor(game.bet * game.multiplier)} Roze)`, callback_data: 'mine_take' }]);
+    }
+    return { reply_markup: { inline_keyboard } };
+}
+
+// ==========================================
+// 6. ОБРАБОТКА CALLBACK QUERY
 // ==========================================
 bot.on('callback_query', async (query) => {
     try {
@@ -173,43 +199,47 @@ bot.on('callback_query', async (query) => {
 
         const userId = query.from.id;
         const firstName = query.from.first_name || 'Игрок';
-        const username = query.from.username || '';
         const chatId = query.message.chat.id;
         const messageId = query.message.message_id;
         const action = query.data;
 
-        const userTag = getUserTag({ userId, firstName, username });
-
-        // Отмена конкретной ставки по кнопке
-        if (action.startsWith('cancel_bet_')) {
-            if (isSpinning) {
-                return await bot.answerCallbackQuery(query.id, { text: '❌ Рулетка уже крутится!', show_alert: true });
+        // --- БОНУС ---
+        if (action === 'check_sub_and_bonus') {
+            const isSubbed = await checkSubscription(userId);
+            if (!isSubbed) {
+                return await bot.answerCallbackQuery(query.id, { text: '❌ Ты еще не подписался на канал!', show_alert: true });
             }
 
-            const betIndex = parseInt(action.split('_')[2]);
-            const bet = currentBets[betIndex];
+            const user = await getUser(userId, firstName);
+            const now = Date.now();
+            const cooldown = 12 * 60 * 60 * 1000;
+            const lastBonus = user.lastBonus || 0;
 
-            if (!bet || bet.userId !== userId) {
-                return await bot.answerCallbackQuery(query.id, { text: '❌ Это не твоя ставка или она уже снята!', show_alert: true });
+            if (now - lastBonus < cooldown) {
+                const timeLeft = cooldown - (now - lastBonus);
+                const h = Math.floor(timeLeft / (1000 * 60 * 60));
+                const m = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+                try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+                await bot.answerCallbackQuery(query.id, { text: 'Подписка подтверждена!' });
+                return await bot.sendMessage(chatId, `⏳ Бонус уже забран! Приходи через **${h}ч ${m}м**`, { parse_mode: 'Markdown', ...mainKeyboard });
             }
 
-            await User.findOneAndUpdate(
-                { userId },
-                { $inc: { balance: bet.amount, tournamentProfit: bet.amount } }
-            );
+            user.balance += 10000;
+            user.lastBonus = now;
+            await user.save();
 
-            currentBets.splice(betIndex, 1);
-
-            await bot.answerCallbackQuery(query.id, { text: '✅ Ставка отменена!' });
             try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-            return await bot.sendMessage(chatId, `🚫 ${userTag}, твоя ставка <b>${bet.amount.toLocaleString('ru-RU')} Roze</b> на [${bet.target.toUpperCase()}] отменена!`, { parse_mode: 'HTML' });
+            await bot.answerCallbackQuery(query.id, { text: '🎉 +10 000 Roze 💰 зачислено!' });
+            return await bot.sendMessage(chatId, `🎉 **Подписка подтверждена! Зачислено +10 000 Roze 💰!**\nТвой баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown', ...mainKeyboard });
         }
 
-        // Повтор / Удвоение
+        // --- ПОВТОР / УДВОЕНИЕ ---
         if (action === 'repeat_bet' || action === 'double_bet') {
             if (isSpinning) return await bot.answerCallbackQuery(query.id, { text: 'Игра идет!', show_alert: true });
 
+            const user = await getUser(userId, firstName);
             const userLastBets = lastRoundBets[userId];
+
             if (!userLastBets || userLastBets.length === 0) {
                 return await bot.answerCallbackQuery(query.id, { text: 'Нет ставок с прошлого раунда!', show_alert: true });
             }
@@ -217,33 +247,85 @@ bot.on('callback_query', async (query) => {
             let multiplier = (action === 'repeat_bet') ? 1 : 2;
             let totalCost = userLastBets.reduce((sum, b) => sum + (b.amount * multiplier), 0);
 
-            const updatedUser = await User.findOneAndUpdate(
-                { userId, balance: { $gte: totalCost } },
-                { $inc: { balance: -totalCost, tournamentProfit: -totalCost } },
-                { new: true }
-            );
-
-            if (!updatedUser) {
-                return await bot.answerCallbackQuery(query.id, { text: `Нужно ${totalCost.toLocaleString('ru-RU')} Roze, не хватает баланса!`, show_alert: true });
+            if (user.balance < totalCost) {
+                return await bot.answerCallbackQuery(query.id, { text: `Нужно ${totalCost.toLocaleString('ru-RU')} Roze`, show_alert: true });
             }
+
+            user.balance -= totalCost;
+            user.tournamentProfit -= totalCost;
+            await user.save();
 
             let addedText = [];
             for (const oldBet of userLastBets) {
                 const newAmount = oldBet.amount * multiplier;
-                currentBets.push({ userId, firstName, username, amount: newAmount, target: oldBet.target, parsedRange: oldBet.parsedRange });
+                currentBets.push({ userId, firstName, amount: newAmount, target: oldBet.target });
                 addedText.push(`${newAmount.toLocaleString('ru-RU')} Roze на ${oldBet.target}`);
             }
 
             await bot.answerCallbackQuery(query.id, { text: 'Ставка принята' });
-            await bot.sendMessage(chatId, `🎰 ${userTag} ${action === 'repeat_bet' ? 'повторил' : 'удвоил'} (${totalCost.toLocaleString('ru-RU')} Roze): ${addedText.join(', ')}`, { parse_mode: 'HTML' });
+            await bot.sendMessage(chatId, `🎰 ${mentionUser(userId, firstName)} ${action === 'repeat_bet' ? 'повторил' : 'удвоил'} (${totalCost.toLocaleString('ru-RU')} Roze): ${addedText.join(', ')}`, { parse_mode: 'Markdown' });
         }
+
+        // --- ИГРА В МИНЫ (КНОПКИ) ---
+        if (action.startsWith('mine_click_') || action === 'mine_take') {
+            const gameKey = `${chatId}_${userId}`;
+            const game = activeMinesGames[gameKey];
+
+            if (!game || game.gameOver) {
+                return await bot.answerCallbackQuery(query.id, { text: 'Сессия игры не найдена или завершена!', show_alert: true });
+            }
+
+            if (action === 'mine_take') {
+                const winAmount = Math.floor(game.bet * game.multiplier);
+                const user = await getUser(userId, firstName);
+                user.balance += winAmount;
+                user.tournamentProfit += winAmount;
+                await user.save();
+
+                game.gameOver = true;
+                delete activeMinesGames[gameKey];
+
+                await bot.answerCallbackQuery(query.id, { text: `Забрал +${winAmount} Roze!` });
+                return await bot.editMessageText(`💣 **Мины | Выигрыш!**\n\n${mentionUser(userId, firstName)} забрал **+${winAmount.toLocaleString('ru-RU')} Roze 💰** (Множитель: x${game.multiplier.toFixed(2)})`, { chatId, message_id: messageId, parse_mode: 'Markdown' });
+            }
+
+            const idx = parseInt(action.replace('mine_click_', ''));
+            if (game.revealed[idx]) {
+                return await bot.answerCallbackQuery(query.id, { text: 'Уже открыто!' });
+            }
+
+            game.revealed[idx] = true;if (game.board[idx] === 'MINE') {
+                game.gameOver = true;
+                delete activeMinesGames[gameKey];
+                await bot.answerCallbackQuery(query.id, { text: '💥 БУМ! Подорвался!' });
+                return await bot.editMessageText(`💥 **Мины | Взрыв!**\n\n${mentionUser(userId, firstName)} наступил на мину и потерял **${game.bet.toLocaleString('ru-RU')} Roze**!`, { chatId, message_id: messageId, ...generateMinesKeyboard(game), parse_mode: 'Markdown' });
+            } else {
+                game.gemsFound++;
+                game.multiplier += 0.45;
+                if (game.gemsFound === 7) { 
+                    const winAmount = Math.floor(game.bet * game.multiplier);
+                    const user = await getUser(userId, firstName);
+                    user.balance += winAmount;
+                    user.tournamentProfit += winAmount;
+                    await user.save();
+                    game.gameOver = true;
+                    delete activeMinesGames[gameKey];
+                    await bot.answerCallbackQuery(query.id, { text: '🏆 Очистил поле!' });
+                    return await bot.editMessageText(`🏆 **Мины | Идеально!**\n\n${mentionUser(userId, firstName)} нашел все кристаллы и выиграл **${winAmount.toLocaleString('ru-RU')} Roze!**`, { chatId, message_id: messageId, parse_mode: 'Markdown' });
+                }
+
+                await bot.answerCallbackQuery(query.id, { text: '💎 Алмаз!' });
+                await bot.editMessageText(`💣 **Мины** (Ставка: ${game.bet} Roze)\nИгрок: ${mentionUser(userId, firstName)}\nТекущий X: **x${game.multiplier.toFixed(2)}**`, { chatId, message_id: messageId, ...generateMinesKeyboard(game), parse_mode: 'Markdown' });
+            }
+        }
+
     } catch (e) {
         console.error('[CALLBACK ERROR]', e.message);
     }
 });
 
 // ==========================================
-// 6. ОБРАБОТКА СООБЩЕНИЙ
+// 7. ОБРАБОТКА СООБЩЕНИЙ
 // ==========================================
 bot.on('message', async (msg) => {
     try {
@@ -252,206 +334,275 @@ bot.on('message', async (msg) => {
         const chatId = msg.chat.id;
         const userId = msg.from ? msg.from.id : null;
         const firstName = msg.from ? msg.from.first_name : 'Игрок';
-        const username = msg.from ? msg.from.username : '';
         const isPrivate = msg.chat.type === 'private';
         if (!userId) return;
 
         const text = msg.text ? msg.text.trim().toLowerCase() : '';
         if (!text) return;
 
-        const user = await getUser(userId, firstName, username);
-        const userTag = getUserTag(user);
+        const user = await getUser(userId, firstName);
 
         if (text === '/start') {
             if (isPrivate) {
-                return await bot.sendMessage(chatId, `🎰 <b>Добро пожаловать в RozeGram Casino!</b>\n\nПривет, ${userTag}!\nБаланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML', ...mainKeyboard });
+                return await bot.sendMessage(
+                    chatId, 
+                    `🎰 **Добро пожаловать в RozeGram Casino!**\n\nПривет, ${mentionUser(userId, firstName)}!\nБаланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**\n\nИспользуй меню ниже 👇`, 
+                    { parse_mode: 'Markdown', ...mainKeyboard }
+                );
             }
             return;
         }
 
-        if (text === 'б' || text === 'бал' || text === 'баланс' || text === '💰 б' || text === '💰 баланс') {
-            return await bot.sendMessage(chatId, `💰 ${userTag}, твой баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML', ...(isPrivate ? mainKeyboard : {}) });
+        // --- АДМИНКА ---
+        const giveSelfMatch = text.match(/^(?:себе|админ)\s+(\d+)$/);
+        if (giveSelfMatch && userId === ADMIN_ID) {
+            const amount = parseInt(giveSelfMatch[1]);
+            user.balance += amount;
+            await user.save();
+            return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Начислено **+${amount.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
         }
 
-        if (text === 'игры' || text === 'куб' || text === '🎮 игры' || text === 'меню') {
-            const gamesText = 
-`🎰 <b>Игровые режимы RozeGram:</b>
+        const giveOtherMatch = text.match(/^(?:выдать|начислить)\s+(\d+)$/);
+        if (giveOtherMatch && userId === ADMIN_ID) {
+            if (!msg.reply_to_message || !msg.reply_to_message.from) {
+                return await bot.sendMessage(chatId, `⚠️ **Админ**, ответь на сообщение!`, { parse_mode: 'Markdown' });
+            }
 
-🔴⚫️ <b>Рулетка:</b>
-• <code>100 к</code> / <code>100 ч</code> — Red/Black (x2)
-• <code>100 чет</code> / <code>100 нечет</code> — Even/Odd (x2)
-• <code>100 12</code> — Число (x36)
-• <code>100 2-8</code> — Диапазон (х5.14)
-• <code>100 2-8,12-18</code> — Мульти-диапазон
+            const targetUserId = msg.reply_to_message.from.id;
+            const targetFirstName = msg.reply_to_message.from.first_name || 'Игрок';
+            const amount = parseInt(giveOtherMatch[1]);
 
-⚽️ <b>Футбол:</b>
-• <code>100 фут</code> — Матч забитых мячей!
+            const recipient = await getUser(targetUserId, targetFirstName);
+            recipient.balance += amount;
+            await recipient.save();
 
-🏀 <b>Баскетбол:</b>
-• <code>100 баскет</code> — Броски по кольцу!`;
-            return await bot.sendMessage(chatId, gamesText, { parse_mode: 'HTML', ...(isPrivate ? mainKeyboard : {}) });
+            return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Игроку ${mentionUser(targetUserId, targetFirstName)} зачислено **+${amount.toLocaleString('ru-RU')} Roze 💰**!`, { parse_mode: 'Markdown' });
         }
 
-        // ==========================================
-        // ⚽️ ФУТБОЛ С ЭМОДЗИ (⚽️)
-        // ==========================================
-        const footMatch = text.match(/^(\d+)\s+(фут|футбол)$/);
-        if (footMatch) {
-            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ Играть нужно в чате!`);
-            const betAmount = parseInt(footMatch[1]);
-
-            if (betAmount <= 0) return await bot.sendMessage(chatId, `❌ Ставка должна быть больше 0!`);
-
-            const updatedUser = await User.findOneAndUpdate(
-                { userId, balance: { $gte: betAmount } },
-                { $inc: { balance: -betAmount } },
-                { new: true }
-            );
-
-            if (!updatedUser) return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML' });
-
-            // Генерируем количество голов от 0 до 4
-            const goals = crypto.randomInt(0, 5);
-            const goalsEmoji = goals > 0 ? '⚽️'.repeat(goals) : '❌ (0 голов)';
-
-            let winAmount = 0;
-            let resultText = '';
-
-            if (goals >= 2) { // 2 и более голов — Победа
-                winAmount = Math.floor(betAmount * (goals * 0.8)); // Динамический коэффициент
-                await User.findOneAndUpdate({ userId }, { $inc: { balance: winAmount, tournamentProfit: winAmount } });
-                resultText = `🎉 <b>ПОБЕДА!</b> Забито: ${goalsEmoji}\nВыигрыш: <b>+${winAmount.toLocaleString('ru-RU')} Roze 💰</b>`;
+        // --- БАЛАНС (БУКВА "б", "бал", "баланс") ---
+        if (text === 'б' || text === 'баланс' || text === 'бал' || text === '💰 баланс') {
+            if (isPrivate) {
+                return await bot.sendMessage(chatId, `💰 Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown', ...mainKeyboard });
             } else {
-                resultText = `Проигрыш... Забито: ${goalsEmoji}\nПотеряно: ${betAmount.toLocaleString('ru-RU')} Roze`;
+                return await bot.sendMessage(chatId, `💰 ${mentionUser(userId, firstName)}, твой баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
             }
-
-            return await bot.sendMessage(chatId, `⚽️ ${userTag} проводит футбольный матч!\n\n${resultText}`, { parse_mode: 'HTML' });
         }
 
-        // ==========================================
-        // 🏀 БАСКЕТБОЛ С ЭМОДЗИ (🏀)
-        // ==========================================
-        const basketMatch = text.match(/^(\d+)\s+(баскет|баскетбол)$/);
-        if (basketMatch) {
-            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ Играть нужно в чате!`);
-            const betAmount = parseInt(basketMatch[1]);
+        // --- ОТМЕНА СТАВКИ ---
+        if (text === 'отмена' || text === 'отменить') {
+            if (isSpinning) return await bot.sendMessage(chatId, `❌ **${mentionUser(userId, firstName)}**, рулетка уже крутится, отменить нельзя!`, { parse_mode: 'Markdown' });
 
-            if (betAmount <= 0) return await bot.sendMessage(chatId, `❌ Ставка должна быть больше 0!`);
-
-            const updatedUser = await User.findOneAndUpdate(
-                { userId, balance: { $gte: betAmount } },
-                { $inc: { balance: -betAmount } },
-                { new: true }
-            );
-
-            if (!updatedUser) return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML' });
-
-            // Генерируем забитые очки от 0 до 3
-            const points = crypto.randomInt(0, 4);
-            const pointsEmoji = points > 0 ? '🏀'.repeat(points) : '❌ (Мимо!)';
-
-            let winAmount = 0;
-            let resultText = '';
-
-            if (points > 0) {
-                const multipliers = [0, 1.5, 2.5, 4.0];
-                winAmount = Math.floor(betAmount * multipliers[points]);
-                await User.findOneAndUpdate({ userId }, { $inc: { balance: winAmount, tournamentProfit: winAmount } });
-                resultText = `🔥 <b>ПОПАДАНИЕ!</b> Забито очков: ${pointsEmoji}\nВыигрыш: <b>+${winAmount.toLocaleString('ru-RU')} Roze 💰</b>`;
-            } else {
-                resultText = `❌ Мимо! Забито: ${pointsEmoji}\nПотеряно: ${betAmount.toLocaleString('ru-RU')} Roze`;
+            const userBets = currentBets.filter(b => b.userId === userId);
+            if (userBets.length === 0) {
+                return await bot.sendMessage(chatId, `⚠️ ${mentionUser(userId, firstName)}, у тебя нет активных ставок для отмены!`, { parse_mode: 'Markdown' });
             }
 
-            return await bot.sendMessage(chatId, `🏀 ${userTag} делает броски по кольцу!\n\n${resultText}`, { parse_mode: 'HTML' });
+            const totalRefund = userBets.reduce((sum, b) => sum + b.amount, 0);
+            user.balance += totalRefund;
+            user.tournamentProfit += totalRefund;
+            await user.save();
+
+            currentBets = currentBets.filter(b => b.userId !== userId);
+            return await bot.sendMessage(chatId, `✅ ${mentionUser(userId, firstName)} отменил все свои ставки! Возвращено: **${totalRefund.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
         }
 
-        // ==========================================// 🎰 СТАВКИ НА РУЛЕТКУ (ЦВЕТА, ЧИСЛА, ДИАПАЗОНЫ)
-        // ==========================================
-        const rouletteMatch = text.match(/^(\d+)\s+(.+)$/);
-        if (rouletteMatch && !isSpinning && !text.startsWith('куб') && !text.startsWith('передать')) {
-            const betAmount = parseInt(rouletteMatch[1]);
-            const targetRaw = rouletteMatch[2].trim();
+        // --- ПЕРЕДАЧА ROZE ---
+        const payMatch = text.match(/^(?:\/pay|передать|перевод|отдать)\s+(\d+)$/);
+        if (payMatch) {
+            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Переводить можно только в чате!');
 
-            if (betAmount <= 0) return await bot.sendMessage(chatId, `❌ Ставка должна быть больше 0!`);
-
-            let isRangeBet = false;
-            let parsedRange = null;
-
-            // 1. Проверяем, не диапазон ли это (например "2-8" или "2-8,12-18")
-            if (targetRaw.includes('-')) {
-                parsedRange = parseRanges(targetRaw);
-                if (!parsedRange) {
-                    return await bot.sendMessage(chatId, `❌ Некорректный диапазон! Пример верного ввода: <code>2-8</code> или <code>2-8,12-18</code> (числа от 0 до 36).`, { parse_mode: 'HTML' });
-                }
-                isRangeBet = true;
+            if (!msg.reply_to_message || !msg.reply_to_message.from) {
+                return await bot.sendMessage(chatId, `⚠️ ${mentionUser(userId, firstName)}, ответь на сообщение получателя!`, { parse_mode: 'Markdown' });
             }
 
-            // 2. Валидация простых типов ставок
-            const validSimple = ['к', 'ч', 'красное', 'черное', 'red', 'black', 'чет', 'нечет', 'четное', 'нечетное', 'even', 'odd'];
-            const isNumber = !isNaN(targetRaw) && parseInt(targetRaw) >= 0 && parseInt(targetRaw) <= 36;
+            const targetUserId = msg.reply_to_message.from.id;
+            const targetFirstName = msg.reply_to_message.from.first_name || 'Игрок';
 
-            if (!isRangeBet && !validSimple.includes(targetRaw) && !isNumber) {
-                return; // Не относится к рулетке
+            if (targetUserId === userId) return await bot.sendMessage(chatId, `❌ Сам себе не переведешь!`, { parse_mode: 'Markdown' });
+            if (msg.reply_to_message.from.is_bot) return await bot.sendMessage(chatId, `❌ Ботам деньги не нужны!`, { parse_mode: 'Markdown' });
+
+            const amount = parseInt(payMatch[1]);
+            if (amount <= 0) return await bot.sendMessage(chatId, '❌ Сумма должна быть больше 0!');
+
+            if (user.balance < amount) {
+                return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
             }
 
-            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ Играть нужно в чате!`);
+            const recipient = await getUser(targetUserId, targetFirstName);
+            user.balance -= amount;
+            recipient.balance += amount;
+            await user.save();
+            await recipient.save();
 
-            // Списываем средства
-            const updatedUser = await User.findOneAndUpdate(
-                { userId, balance: { $gte: betAmount } },
-                { $inc: { balance: -betAmount, tournamentProfit: -betAmount } },
-                { new: true }
+            return await bot.sendMessage(
+                chatId, 
+                `💸 **Успешный перевод!**\n\n👤 ${mentionUser(userId, firstName)} перевел **${amount.toLocaleString('ru-RU')} Roze 💰** для ${mentionUser(targetUserId, targetFirstName)}!`, 
+                { parse_mode: 'Markdown' }
             );
+        }
 
-            if (!updatedUser) return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: <b>${user.balance.toLocaleString('ru-RU')} Roze 💰</b>`, { parse_mode: 'HTML' });
+        // --- МИНЫ (ЗАПУСК ИГРЫ КНОПКАМИ) ---
+        const minesMatch = text.match(/^мины\s+(\d+)$/);
+        if (minesMatch) {
+            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Играть нужно в чате!');
+            const betAmount = parseInt(minesMatch[1]);
 
-            currentBets.push({
-                userId,
-                firstName,
-                username,
-                amount: betAmount,
-                target: targetRaw,
-                parsedRange: isRangeBet ? parsedRange : null
-            });
+            if (user.balance < betAmount || betAmount <= 0) {
+                return await bot.sendMessage(chatId, `❌ Недостаточно средств для игры в Мины!`, { parse_mode: 'Markdown' });}
 
-            const cancelKeyboard = {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: '❌ Отменить ставку', callback_data: `cancel_bet_${currentBets.length - 1}` }]
-                    ]
-                }
+            const gameKey = `${chatId}_${userId}`;
+            if (activeMinesGames[gameKey]) {
+                return await bot.sendMessage(chatId, `⚠️ Закончи прошлую игру в Мины!`, { parse_mode: 'Markdown' });
+            }
+
+            user.balance -= betAmount;
+            user.tournamentProfit -= betAmount;
+            await user.save();
+
+            let board = Array(9).fill('GEM');
+            let m1 = Math.floor(Math.random() * 9);
+            let m2 = Math.floor(Math.random() * 9);
+            while (m1 === m2) m2 = Math.floor(Math.random() * 9);
+            board[m1] = 'MINE';
+            board[m2] = 'MINE';
+
+            const game = {
+                bet: betAmount,
+                board: board,
+                revealed: Array(9).fill(false),
+                gemsFound: 0,
+                multiplier: 1.0,
+                gameOver: false
             };
 
-            let betInfoText = `[<b>${targetRaw.toUpperCase()}</b>]`;
-            if (isRangeBet) {
-                betInfoText += ` (Покрыто чисел: ${parsedRange.count} | Коэфф: x${parsedRange.multiplier})`;
-            }
+            activeMinesGames[gameKey] = game;
 
-            return await bot.sendMessage(chatId, `✅ ${userTag} поставил <b>${betAmount.toLocaleString('ru-RU')} Roze</b> на ${betInfoText}`, { parse_mode: 'HTML', ...cancelKeyboard });
+            return await bot.sendMessage(
+                chatId, 
+                `💣 **Мины** (Ставка: ${betAmount} Roze)\nИгрок: ${mentionUser(userId, firstName)}\nНажми на кнопку чтобы открыть поле (на поле 2 мины):`, 
+                { parse_mode: 'Markdown', ...generateMinesKeyboard(game) }
+            );
         }
 
-        // ==========================================
-        // 🚀 КРУТИТЬ РУЛЕТКУ ("ГО")
-        // ==========================================
-        if (text === 'го' || text === 'go' || text === 'старт' || text === 'крутить') {
-            if (isPrivate || isSpinning) return;
-            if (currentBets.length === 0) return await bot.sendMessage(chatId, `⚠️ ${userTag}, сначала сделайте ставку!`, { parse_mode: 'HTML' });
+        // --- ТУРНИР / БОНУС / ИСТОРИЯ / ПРАВИЛА ---
+        if (text === '🏆 турнир' || text === 'турнир' || text === 'топ') {
+            const topUsers = await User.find().sort({ tournamentProfit: -1 }).limit(10);
+            let leaderboardText = `🏆 **Суточный Турнир RozeGram**\n\n📊 **Текущий ТОП Лидеров:**\n`;
+            if (topUsers.length === 0 || topUsers[0].tournamentProfit <= 0) {
+                leaderboardText += `_Пока нет активных участников._`;
+            } else {
+                topUsers.forEach((u, idx) => {
+                    if (u.tournamentProfit > 0) {
+                        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
+                        leaderboardText += `${medal} ${mentionUser(u.userId, u.firstName)} ➔ +${u.tournamentProfit.toLocaleString('ru-RU')} Roze 💰\n`;
+                    }
+                });
+            }
+            return await bot.sendMessage(chatId, leaderboardText, { parse_mode: 'Markdown' });
+        }
 
+        if (text === 'бонус' || text === '🎁 бонус') {
+            if (!isPrivate) return await bot.sendMessage(chatId, `🎁 ${mentionUser(userId, firstName)}, забрать бонус можно в ЛС бота!`, { parse_mode: 'Markdown' });
+            const isSubbed = await checkSubscription(userId);
+            if (!isSubbed) {
+                const subMenu = { reply_markup: { inline_keyboard: [[{ text: '📢 Подписаться', url: CHANNEL_LINK }], [{ text: '✅ Проверить', callback_data: 'check_sub_and_bonus' }]] } };
+                return await bot.sendMessage(chatId, `❌ **Подпишись на канал для получения бонуса!**`, { parse_mode: 'Markdown', ...subMenu });
+            }
             const now = Date.now();
-            const lastGo = userGoCooldowns[userId] || 0;
-            if (now - lastGo < 10000) {
-                const secLeft = Math.ceil((10000 - (now - lastGo)) / 1000);
-                return await bot.sendMessage(chatId, `⏳ ${userTag}, подожди еще <b>${secLeft} сек.</b> перед го!`, { parse_mode: 'HTML' });
+            if (now - (user.lastBonus || 0) < 12 * 60 * 60 * 1000) {
+                return await bot.sendMessage(chatId, `⏳ Бонус пока недоступен!`, { parse_mode: 'Markdown' });
+            }
+            user.balance += 10000;
+            user.lastBonus = now;
+            await user.save();
+            return await bot.sendMessage(chatId, `🎉 Зачислено **+10 000 Roze 💰**!`, { parse_mode: 'Markdown' });
+        }
+
+        if (text === 'история') {
+            const histDoc = await getHistory();
+            const historyText = histDoc.results.map((item, index) => `${index + 1}. ${item}`).join('\n') || 'Пусто';
+            return await bot.sendMessage(chatId, `📜 **История:**\n\n${historyText}`, { parse_mode: 'Markdown' });
+        }
+
+        if (text === '📖 правила игры' || text === 'правила') {
+            return await bot.sendMessage(chatId, `🎰 **Правила Casino**\n\n• Ставки: \`100 к\`, \`100 ч\`, \`100 чет\`, \`100 12\`\n• Баланс: буква \`б\`\n• Отмена: \`отмена\`\n• Мины: \`мины 500\`\n• Старт: \`го\``, { parse_mode: 'Markdown' });
+        }
+
+        // --- КУБИК ---
+        const diceMatch = text.match(/^(\d+)\s+куб\s+(1|2|3|4|5|6|чет|нечет)$/);
+        if (diceMatch) {
+            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ Играть нужно в чате!`);
+            const betAmount = parseInt(diceMatch[1]);
+            const target = diceMatch[2];
+
+            if (user.balance < betAmount) return await bot.sendMessage(chatId, `❌ Нехватка средств!`, { parse_mode: 'Markdown' });
+
+            user.balance -= betAmount;
+            user.tournamentProfit -= betAmount;
+
+            const roll = Math.floor(Math.random() * 6) + 1;
+            let win = false;
+            let multiplier = 0;
+
+            if (target === 'чет' && roll % 2 === 0) { win = true; multiplier = 2; }
+            else if (target === 'нечет' && roll % 2 !== 0) { win = true; multiplier = 2; }
+            else if (parseInt(target) === roll) { win = true; multiplier = 6; }
+
+            let report = `🎲 ${mentionUser(userId, firstName)} бросил кубик! Выпало: **[ ${roll} ]**\n`;
+            if (win) {
+                const winAmount = betAmount * multiplier;
+                user.balance += winAmount;
+                user.tournamentProfit += winAmount;
+                report += `✅ Победа! Выигрыш: **+${winAmount.toLocaleString('ru-RU')} Roze 💰**`;
+            } else {
+                report += `❌ Проигрыш! Потеряно ${betAmount.toLocaleString('ru-RU')} Roze.`;
+            }
+            await user.save();
+            return await bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
+        }
+
+        // --- ПРИЕМ СТАВОК НА РУЛЕТКУ ---
+        const rouletteMatch = text.match(/^(\d+)\s+(к|ч|красное|черное|red|black|чет|нечет|четное|нечетное|even|odd|\d{1,2})$/);
+        if (rouletteMatch && !isSpinning) {
+            if (isPrivate) return await bot.sendMessage(chatId, `⚠️ Играть нужно в чате!`);
+            const betAmount = parseInt(rouletteMatch[1]);
+            const target = rouletteMatch[2];
+
+            if (target.match(/^\d+$/) && (parseInt(target) < 0 || parseInt(target) > 36)) {
+                return await bot.sendMessage(chatId, `❌ Число от 0 до 36!`);
             }
 
-            userGoCooldowns[userId] = now;
-            isSpinning = true;
+            if (user.balance < betAmount) {
+                return await bot.sendMessage(chatId, `❌ Нехватка средств! Баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
+            }
 
-            await bot.sendMessage(chatId, `🎲 ${userTag} запустил рулетку! Крутим...`, { parse_mode: 'HTML' });
+            user.balance -= betAmount;
+            user.tournamentProfit -= betAmount;
+            await user.save();
+
+            currentBets.push({ userId, firstName, amount: betAmount, target });
+            return await bot.sendMessage(chatId, `✅ ${mentionUser(userId, firstName)} поставил **${betAmount.toLocaleString('ru-RU')} Roze** на **${target.toUpperCase()}**`, { parse_mode: 'Markdown' });
+        }
+
+        // --- ЗАПУСК РУЛЕТКИ (ГО) ---
+        if (text === 'го' || text === 'go' || text === 'крутить') {
+            if (isPrivate || isSpinning) return;
+            if (currentBets.length === 0) return await bot.sendMessage(chatId, '⚠️ Сначала сделайте ставку');
+
+            isSpinning = true;
+            
+            // 🛡 Устанавливаем таймер безопасности на 5 минут!
+            spinSafetyTimer = setTimeout(() => {
+                if (isSpinning) emergencyRefund(chatId, 'Превышено время ожидания 5 минут');
+            }, 5 * 60 * 1000);
+
+            await bot.sendMessage(chatId, '🎲 Крутим...');
+
             try { await bot.sendDice(chatId, { emoji: '🎰' }); } catch (e) {}
             await sleep(3800);
 
-            try {const num = crypto.randomInt(0, 37);
+            try {
+                const num = Math.floor(Math.random() * 37);
                 let colorEmoji = num === 0 ? '🟢' : (redNumbers.includes(num) ? '🔴' : '⚫️');
 
                 const histDoc = await getHistory();
@@ -461,70 +612,69 @@ bot.on('message', async (msg) => {
 
                 let isRed = redNumbers.includes(num);
                 let isBlack = num !== 0 && !isRed;
-                let isEven = num % 2 === 0; // 0 считается чётным
+                let isEven = num !== 0 && num % 2 === 0;
                 let isOdd = num !== 0 && num % 2 !== 0;
 
                 lastRoundBets = {}; 
-                let report = `🎰 <b>Результат Рулетки:</b> [ <b>${num} ${colorEmoji}</b> ]\n\n`;
+                let report = `Рулетка: **${num}${colorEmoji}**\n\n`;
 
                 for (const bet of currentBets) {
                     if (!lastRoundBets[bet.userId]) lastRoundBets[bet.userId] = [];
                     lastRoundBets[bet.userId].push(bet);
+                }
 
-                    const betUserTag = getUserTag({ userId: bet.userId, firstName: bet.firstName, username: bet.username });
+                for (const bet of currentBets) {
                     let win = false;
                     let multiplier = 0;
                     const t = bet.target.toLowerCase();
 
-                    // 1. Проверка Диапазонов
-                    if (bet.parsedRange) {
-                        if (bet.parsedRange.numbers.includes(num)) {
-                            win = true;
-                            multiplier = bet.parsedRange.multiplier;
-                        }
-                    } 
-                    // 2. Проверка стандартных типов
-                    else if ((t === 'к' || t === 'красное' || t === 'red') && isRed) { win = true; multiplier = 2; }
+                    if ((t === 'к' || t === 'красное' || t === 'red') && isRed) { win = true; multiplier = 2; }
                     else if ((t === 'ч' || t === 'черное' || t === 'black') && isBlack) { win = true; multiplier = 2; }
-                    else if ((t === 'чет' || t === 'четное' || t === 'even') && isEven && num !== 0) { win = true; multiplier = 2; }
+                    else if ((t === 'чет' || t === 'четное' || t === 'even') && isEven) { win = true; multiplier = 2; }
                     else if ((t === 'нечет' || t === 'нечетное' || t === 'odd') && isOdd) { win = true; multiplier = 2; }
                     else if (!isNaN(t) && parseInt(t) === num) { win = true; multiplier = 36; }
 
+                    const betUser = await getUser(bet.userId, bet.firstName);
+
+                    let displayTarget = bet.target.toUpperCase();
+                    if (['К', 'КРАСНОЕ'].includes(displayTarget)) displayTarget = 'RED';
+                    if (['Ч', 'ЧЕРНОЕ'].includes(displayTarget)) displayTarget = 'BLACK';
+
                     if (win) {
                         const winAmount = Math.floor(bet.amount * multiplier);
-                        await User.findOneAndUpdate(
-                            { userId: bet.userId },
-                            { $inc: { balance: winAmount, tournamentProfit: winAmount } }
-                        );
-                        report += `✅ ${betUserTag} выбил <b>+${winAmount.toLocaleString('ru-RU')} Roze</b> на [${bet.target.toUpperCase()}] (x${multiplier})\n`;
+                        betUser.balance += winAmount;
+                        betUser.tournamentProfit += winAmount;
+                        await betUser.save();
+                        report += `✅ ${mentionUser(bet.userId, bet.firstName)} ставка ${bet.amount.toLocaleString('ru-RU')} Roze выиграл **${winAmount.toLocaleString('ru-RU')}** на **${displayTarget}**\n`;
                     } else {
-                        report += `❌ ${betUserTag} проиграл ${bet.amount.toLocaleString('ru-RU')} Roze [${bet.target.toUpperCase()}]\n`;
+                        await betUser.save();
+                        report += `❌ ${mentionUser(bet.userId, bet.firstName)} ставка ${bet.amount.toLocaleString('ru-RU')} Roze на ${displayTarget} не сыграла\n`;
                     }
                 }
 
                 currentBets = [];
                 isSpinning = false;
+                if (spinSafetyTimer) clearTimeout(spinSafetyTimer);
 
                 const actionButtons = {
                     reply_markup: {
                         inline_keyboard: [
                             [
-                                { text: '🔄 Повторить', callback_data: 'repeat_bet' },
-                                { text: '⚡️ Удвоить', callback_data: 'double_bet' }
+                                { text: 'Повторить', callback_data: 'repeat_bet' },
+                                { text: 'Удвоить', callback_data: 'double_bet' }
                             ]
                         ]
                     }
                 };
 
-                await bot.sendMessage(chatId, report.trim(), { parse_mode: 'HTML', ...actionButtons });
+                await bot.sendMessage(chatId, report.trim(), { parse_mode: 'Markdown', ...actionButtons });
 
             } catch (err) {
-                isSpinning = false;
-                currentBets = [];
+                console.error('[SPIN ERROR]', err.message);
+                await emergencyRefund(chatId, err.message);
             }
         }
     } catch (globalErr) {
-        isSpinning = false;
-        currentBets = [];
+        console.error('[GLOBAL ERROR]', globalErr.message);
     }
 });
