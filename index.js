@@ -208,7 +208,7 @@ bot.on('callback_query', async (query) => {
             const cooldown = 12 * 60 * 60 * 1000;
             if (now - (user.lastBonus || 0) < cooldown) {
                 try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-                returnawait bot.sendMessage(chatId, `⏳ Бонус уже забран!`, { parse_mode: 'Markdown', ...mainKeyboard });
+                return await bot.sendMessage(chatId, `⏳ Бонус уже забран!`, { parse_mode: 'Markdown', ...mainKeyboard });
             }
 
             user.balance += 10000;
