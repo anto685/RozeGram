@@ -632,17 +632,13 @@ bot.on('message', async (msg) => {
             }, 30000);
 
             try {
-                if (ROULETTE_GIF_ID) {
-                    try {
-                        await bot.sendAnimation(chatId, ROULETTE_GIF_ID, { caption: '🎰 **Рулетка крутится... Делайте ваши ставки!**', parse_mode: 'Markdown' });
-                    } catch (e) {
-                        await bot.sendMessage(chatId, '🎰 **Ставки закрыты! Рулетка крутится...**');
-                    }
-                } else {
-                    await bot.sendMessage(chatId, '🎰 **Ставки закрыты! Рулетка крутится...**');
+                  try {
+                    await bot.sendVideo(chatId, ROULETTE_GIF_ID, { caption: '🎰 *Ставки закрыты! Рулетка крутится...*', parse_mode: 'Markdown' });
+                } catch (e) {
+                    console.error('Ошибка отправки видео:', e.message);
+                    await bot.sendMessage(chatId, '🎰 *Ставки закрыты! Рулетка крутится...*');
                 }
 
-                await sleep(4000); // Имитация вращения
 
                 const num = Math.floor(Math.random() * 37);
                 const isRed = redNumbers.includes(num);
