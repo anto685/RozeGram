@@ -635,21 +635,13 @@ bot.on('message', async (msg) => {
 
             try {
                 // ЭМОДЗИ-АНИМАЦИЯ КРУТИЛКИ
-                const spinMsg = await bot.sendMessage(chatId, '🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ 🔴 12 ]');
+                  // НА ТИВНЫЙ 3D-СЛОТ ОТ ТЕЛЕГРАМА
+                const slotMsg = await bot.sendDice(chatId, { emoji: '🎰' });
+                await sleep(4000); // ждем 4 секунды пока 3D барабаны докрутятся!
+                try { await bot.deleteMessage(chatId, slotMsg.message_id); } catch(e) {}
 
                 await sleep(700);
-                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ ⚫️ 29 ]', { chat_id: chatId, message_id: spinMsg.message_id });
 
-                await sleep(700);
-                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ 🔴 7 ]', { chat_id: chatId, message_id: spinMsg.message_id });
-
-                await sleep(700);
-                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ 🟢 0 ]', { chat_id: chatId, message_id: spinMsg.message_id });
-
-                await sleep(700);
-                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ ⚫️ 18 ]', { chat_id: chatId, message_id: spinMsg.message_id });
-
-                await sleep(700);
                 try { await bot.deleteMessage(chatId, spinMsg.message_id); } catch(e) {}
 
                 try { await bot.deleteMessage(chatId, spinMsg.message_id); } catch(e) {}
