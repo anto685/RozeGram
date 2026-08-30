@@ -562,6 +562,24 @@ bot.on('message', async (msg) => {
             await user.save();
             return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Начислено **+${amount.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
         }
+                if (text === 'стата' || text === 'админ стата' || text === 'статистика') {
+            if (userId === ADMIN_ID) {
+                const totalUsers = await User.countDocuments();
+                const totalChats = await Chat.countDocuments();
+                const activeTreasuries = await Chat.countDocuments({ treasuryActive: true });
+                
+                const adminReport = 
+`👑 *--- [ ИМПЕРИЯ СУЕТОЛОГА ] ---*
+
+👥 Всего игроков в базе: *${totalUsers.toLocaleString('ru-RU')}*
+💬 Чатов захвачено: *${totalChats.toLocaleString('ru-RU')}*
+🏛 Активировано казн: *${activeTreasuries.toLocaleString('ru-RU')}*
+⚙️ Статус бота: *ONLINE (Жара идет! 🚀)*`;
+
+                return await bot.sendMessage(chatId, adminReport, { parse_mode: 'Markdown' });
+            }
+        }
+
 
         if (text === 'отмена' || text === 'отменить') {
             if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Играть и управлять ставками можно только в группах!');
