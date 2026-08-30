@@ -39,7 +39,8 @@ const BOT_START_TIME = Math.floor(Date.now() / 1000);
 const ADMIN_ID = 6947353037;
 
 // ТВОЯ ГИФКА РУЛЕТКИ
-const ROULETTE_GIF_ID = 'https://media.giphy.com/media/l41YtZOb9EUwkiSiA/giphy.gif';
+const ROULETTE_GIF_ID = 'const ROULETTE_GIF_ID = 'https://i.gifer.com/Origin.gif';
+';
 
 
 
