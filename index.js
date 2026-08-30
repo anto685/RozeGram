@@ -627,20 +627,34 @@ bot.on('message', async (msg) => {
             if (isSpinning) return await bot.sendMessage(chatId, '⏳ Рулетка уже крутится!');
             if (currentBets.length === 0) return await bot.sendMessage(chatId, '⚠️ Нет активных ставок! Сначала сделайте ставку.');
 
-            isSpinning = true;
+                    isSpinning = true;
 
-            // Защитный таймер (30 сек)
             spinSafetyTimer = setTimeout(() => {
                 emergencyRefund(chatId, 'Таймаут рулетки');
             }, 30000);
 
             try {
-                  try {
-                    await bot.sendAnimation(chatId, ROULETTE_GIF_ID, { caption: '🎰 *Ставки закрыты! Рулетка крутится...*', parse_mode: 'Markdown' });
-                } catch (e) {
-                    console.error('Ошибка отправки видео:', e.message);
-                    await bot.sendMessage(chatId, '🎰 *Ставки закрыты! Рулетка крутится...*');
-                }
+                // ЭМОДЗИ-АНИМАЦИЯ КРУТИЛКИ
+                const spinMsg = await bot.sendMessage(chatId, '🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ 🔴 12 ]');
+
+                await sleep(700);
+                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ ⚫️ 29 ]', { chat_id: chatId, message_id: spinMsg.message_id });
+
+                await sleep(700);
+                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ 🔴 7 ]', { chat_id: chatId, message_id: spinMsg.message_id });
+
+                await sleep(700);
+                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ 🟢 0 ]', { chat_id: chatId, message_id: spinMsg.message_id });
+
+                await sleep(700);
+                await bot.editMessageText('🎰 *Ставки закрыты! Рулетка крутится...*\n\n[ ⚫️ 18 ]', { chat_id: chatId, message_id: spinMsg.message_id });
+
+                await sleep(700);
+                try { await bot.deleteMessage(chatId, spinMsg.message_id); } catch(e) {}
+
+                try { await bot.deleteMessage(chatId, spinMsg.message_id); } catch(e) {}
+
+                // А ДАЛЬШЕ ИДЕТ ТВОЙ ОБУЧНЫЙ РАСЧЕТ ВЫПАДЕНИЯ (num, isRed и т.д.)
 
 
                 const num = Math.floor(Math.random() * 37);
