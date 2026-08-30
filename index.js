@@ -39,7 +39,8 @@ const BOT_START_TIME = Math.floor(Date.now() / 1000);
 const ADMIN_ID = 6947353037;
 
 // ТВОЯ ГИФКА РУЛЕТКИ
-const ROULETTE_GIF_ID = 'CgACAgUAAxkBAAEuLLJqk9LK2EhBZ3Rq3aCInO8jpVx4fwACFSMAAzmhVEEMDwRkfnpmPQQ';
+const ROULETTE_GIF_ID = 'https://media.giphy.com/media/l41YtZOb9EUwkiSiA/giphy.gif';
+
 
 
 mongoose.set('strictQuery', false);
@@ -633,7 +634,7 @@ bot.on('message', async (msg) => {
 
             try {
                   try {
-                    await bot.sendVideo(chatId, ROULETTE_GIF_ID, { caption: '🎰 *Ставки закрыты! Рулетка крутится...*', parse_mode: 'Markdown' });
+                    await bot.sendAnimation(chatId, ROULETTE_GIF_ID, { caption: '🎰 *Ставки закрыты! Рулетка крутится...*', parse_mode: 'Markdown' });
                 } catch (e) {
                     console.error('Ошибка отправки видео:', e.message);
                     await bot.sendMessage(chatId, '🎰 *Ставки закрыты! Рулетка крутится...*');
