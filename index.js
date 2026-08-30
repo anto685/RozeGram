@@ -830,54 +830,15 @@ bot.on('message', async (msg) => {
                 await sleep(4000);
                 try { await bot.deleteMessage(chatId, slotMsg.message_id); } catch(e) {}
 
-                // --- 😈 АЛГОРИТМ ПОДКТУТКИ (60% ШАНС НА ПРОЁБ) ---
-                let num;
-                const forceLosingRoll = Math.random() < 0.60; 
-
-                if (forceLosingRoll) {
-                    // Перебираем числа, чтобы минимизировать выигрыш игроков
-                    let bestNum = Math.floor(Math.random() * 37);
-                    let minPayout = Infinity;
-
-                    for (let candidate = 0; candidate <= 36; candidate++) {
-                        let cIsRed = redNumbers.includes(candidate);
-                        let cIsBlack = candidate !== 0 && !cIsRed;
-                        let cIsEven = candidate !== 0 && candidate % 2 === 0;
-                        let candidatePayout = 0;
-
-                        for (const b of currentBets) {
-                            if (b.type === 'NUMBERS') {
-                                const rangeMatch = b.target.match(/^(\d{1,2})-(\d{1,2})$/);
-                                if (rangeMatch) {
-                                    if (candidate >= parseInt(rangeMatch[1]) && candidate <= parseInt(rangeMatch[2])) {
-                                        candidatePayout += b.amount * Math.floor(36 / (parseInt(rangeMatch[2]) - parseInt(rangeMatch[1]) + 1));
-                                    }
-                                } else if (parseInt(b.target) === candidate) {
-                                    candidatePayout += b.amount * 36;
-                                }
-                            } else if (b.type === 'COLORS') {
-                                if (['к', 'красное', 'red'].includes(b.target) && cIsRed) candidatePayout += b.amount * 2;
-                                if (['ч', 'черное', 'black'].includes(b.target) && cIsBlack) candidatePayout += b.amount * 2;
-                            } else if (b.type === 'EVENODD') {
-                                if (['чет', 'четное', 'even'].includes(b.target) && cIsEven) candidatePayout += b.amount * 2;
-                                if (['нечет', 'нечетное', 'odd'].includes(b.target) && !cIsEven && candidate !== 0) candidatePayout += b.amount * 2;
-                            }
-                        }
-
-                        if (candidatePayout < minPayout) {
-                            minPayout = candidatePayout;
-                            bestNum = candidate;
-                        }
-                    }num = bestNum;
-                } else {
-                    // Честный рандом 40%
-                    num = Math.floor(Math.random() * 37);
-                }
-
+                 // --- 🎰 ЧИСТЫЙ РАНДОМ 50/50 ---
+                const num = Math.floor(Math.random() * 37);
                 const isRed = redNumbers.includes(num);
                 const isBlack = num !== 0 && !isRed;
                 const isEven = num !== 0 && num % 2 === 0;
-                let colorEmoji = num === 0 ? '🟢' : (isRed ? '🔴' : '⚫');
+                let colorEmoji = num === 0 ? '🟢' : (isRed ? '🔴' : '⚫️');
+                
+
+       
 
                 // СОХРАНЯЕМ В ЛОГ (ФОРМАТ СО СКРИНА: 19🔴)
                 const chatData = await getChatData(chatId, msg.chat.title);
