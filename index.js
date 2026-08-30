@@ -1,16 +1,16 @@
-const TelegramBot = require('node-telegram-bot-api');
+    const TelegramBot = require('node-telegram-bot-api');
 const mongoose = require('mongoose');
 const http = require('http');
 
 // ==========================================
-// 1. СЕРВЕР И САМО-ПЕРЕЗАГРУЗКА (PING КАЖДЫЕ 14 МИН)
+// 1. СЕРВЕР И САМО-ПЕРЕЗАГРУЗКА
 // ==========================================
 const PORT = process.env.PORT || 10000;
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('RozeGram Casino Engine v8.5 - ALIVE 🎰');
+    res.end('RozeGram Casino Engine v9.0 - ALIVE 🎰');
 });
 
 server.listen(PORT, '0.0.0.0', () => {
@@ -20,11 +20,7 @@ server.listen(PORT, '0.0.0.0', () => {
 const FIFTEEN_MINUTES = 14 * 60 * 1000; 
 setInterval(() => {
     if (RENDER_URL && RENDER_URL.startsWith('http')) {
-        http.get(RENDER_URL, (res) => {
-            console.log(`[ANTI-SLEEP] Авто-пинг пройден! Статус: ${res.statusCode}`);
-        }).on('error', (err) => {
-            console.error('[ANTI-SLEEP ERROR] Ошибка пинга:', err.message);
-        });
+        http.get(RENDER_URL, (res) => {}).on('error', () => {});
     }
 }, FIFTEEN_MINUTES);
 
@@ -38,13 +34,6 @@ const CHANNEL_USERNAME = '@anloMorze2k26';
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
 const ADMIN_ID = 6947353037;
 
-// ТВОЯ ГИФКА РУЛЕТКИ
-const ROULETTE_GIF_ID = 'https://i.gifer.com/Origin.gif';
-
-
-
-
-
 mongoose.set('strictQuery', false);
 const connectDB = async () => {
     try {
@@ -54,26 +43,35 @@ const connectDB = async () => {
         });
         console.log('[CLOUD DB] Успешное подключение к MongoDB Atlas!');
     } catch (err) {
-        console.error('[CLOUD DB ERROR] Ошибка подключения:', err.message);
         setTimeout(connectDB, 5000);
     }
 };
 connectDB();
 
 // ==========================================
-// 3. СХЕМЫ ДАННЫХ
+// 3. СХЕМЫ ДАННЫХ (ОБНОВЛЕННЫЕ)
 // ==========================================
 const userSchema = new mongoose.Schema({
     userId: { type: Number, required: true, unique: true },
     firstName: { type: String, default: 'Игрок' },
     balance: { type: Number, default: 1000 },
     lastBonus: { type: Number, default: 0 },
-    tournamentProfit: { type: Number, default: 0 }
+    maxProfitRecord: { type: Number, default: 0 }, // Рекордный несгораемый профит
+    accumulatedProfit: { type: Number, default: 0 } // Текущий плюс для подсчета рекорда
 });
 
-const historySchema = new mongoose.Schema({ results: { type: [String], default: [] } });
+const chatSchema = new mongoose.Schema({
+    chatId: { type: Number, required: true, unique: true },
+    title: { type: String, default: 'Чат' },
+    treasuryActive: { type: Boolean, default: false },
+    treasuryBalance: { type: Number, default: 0 },
+    totalChatProfit: { type: Number, default: 0 } // Для топа чатов
+});
+
+const historySchema =new mongoose.Schema({ results: { type: [String], default: [] } });
 
 const User = mongoose.model('User', userSchema);
+const Chat = mongoose.model('Chat', chatSchema);
 const History = mongoose.model('History', historySchema);
 
 // ==========================================
@@ -86,14 +84,9 @@ let spinSafetyTimer = null;
 let activeMinesGames = {}; 
 
 const MAX_BETS_PER_ROUND = 250; 
-
 const bot = new TelegramBot(token, { polling: true });
 
-bot.on('polling_error', (err) => {
-    if (!err.message.includes('409 Conflict')) {
-        console.error(`[POLLING ERROR] ${err.code}: ${err.message}`);
-    }
-});
+bot.on('polling_error', (err) => {});
 
 const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -107,7 +100,8 @@ const mainKeyboard = {
     reply_markup: {
         keyboard: [
             [{ text: '💰 Баланс' }, { text: '🎁 Бонус' }],
-            [{ text: '🏆 Турнир' }, { text: '📖 Правила игры' }]
+            [{ text: '🏆 Турнир' }, { text: '🏆 Топ Чатов' }],
+            [{ text: '📖 Правила игры' }]
         ],
         resize_keyboard: true
     }
@@ -117,15 +111,44 @@ async function getUser(userId, firstName = 'Игрок') {
     try {
         let user = await User.findOne({ userId });
         if (!user) {
-            user = await User.create({ userId, firstName, balance: 1000, lastBonus: 0, tournamentProfit: 0 });
+            user = await User.create({ userId, firstName, balance: 1000 });
         } else if (firstName !== 'Игрок' && user.firstName !== firstName) {
             user.firstName = firstName;
             await user.save();
         }
         return user;
     } catch (e) {
-        console.error('[GET USER ERROR]', e.message);
-        return { userId, firstName, balance: 1000, lastBonus: 0, tournamentProfit: 0, save: async () => {} };
+        return { userId, firstName, balance: 1000, maxProfitRecord: 0, accumulatedProfit: 0, save: async () => {} };
+    }
+}
+
+async function getChatData(chatId, title = 'Чат') {
+    try {
+        let chat = await Chat.findOne({ chatId });
+        if (!chat) {
+            chat = await Chat.create({ chatId, title });
+        } else if (title !== 'Чат' && chat.title !== title) {
+            chat.title = title;
+            await chat.save();
+        }
+        return chat;
+    } catch (e) {
+        return { chatId, title, treasuryActive: false, treasuryBalance: 0, totalChatProfit: 0, save: async () => {} };
+    }
+}
+
+// Вспомогательная функция для обновления Рекордного Профита
+async function addNetProfit(user, netAmount, chatId = null, chatTitle = 'Чат') {
+    user.accumulatedProfit += netAmount;
+    if (user.accumulatedProfit > user.maxProfitRecord) {
+        user.maxProfitRecord = user.accumulatedProfit;
+    }
+    await user.save();
+
+    if (chatId && netAmount > 0) {
+        const chat = await getChatData(chatId, chatTitle);
+        chat.totalChatProfit += netAmount;
+        await chat.save();
     }
 }
 
@@ -157,7 +180,6 @@ async function emergencyRefund(chatId, reason = 'Ошибка сервера') {
         try {
             const betUser = await getUser(bet.userId, bet.firstName);
             betUser.balance += bet.amount;
-            betUser.tournamentProfit += bet.amount;
             await betUser.save();
         } catch (e) {}
     }
@@ -170,11 +192,11 @@ async function emergencyRefund(chatId, reason = 'Ошибка сервера') {
 }
 
 // ==========================================
-// 5. МИНЫ (5х5) КЛАВИАТУРА
+// 5. МИНЫ (5х5) — 6 МИН, УРЕЗАННЫЙ КОЭФ
 // ==========================================
 function generateMinesKeyboard(game) {
     let inline_keyboard = [];
-    for (let r = 0; r < 5; r++) {
+    for (let r =0; r < 5; r++) {
         let row = [];
         for (let c = 0; c < 5; c++) {
             const idx = r * 5 + c;
@@ -194,7 +216,41 @@ function generateMinesKeyboard(game) {
 }
 
 // ==========================================
-// 6. ОБРАБОТКА CALLBACK QUERY
+// 6. ОБРАБОТКА ИНВАЙТОВ (АВТО-ВЫДАЧА ИЗ КАЗНЫ)
+// ==========================================
+bot.on('new_chat_members', async (msg) => {
+    try {
+        const chatId = msg.chat.id;
+        const inviter = msg.from;
+        if (!inviter || inviter.is_bot) return;
+
+        const chat = await getChatData(chatId, msg.chat.title);
+        if (!chat.treasuryActive || chat.treasuryBalance < 30000) return;
+
+        const newUsers = msg.new_chat_members.filter(m => !m.is_bot && m.id !== inviter.id);
+        if (newUsers.length === 0) return;
+
+        for (const newUser of newUsers) {
+            if (chat.treasuryBalance < 30000) break;
+
+            // Рандом от 30k до 50k
+            let reward = Math.floor(Math.random() * (50000 - 30000 + 1)) + 30000;
+            if (reward > chat.treasuryBalance) reward = chat.treasuryBalance;
+
+            chat.treasuryBalance -= reward;
+            await chat.save();
+
+            const inviterUser = await getUser(inviter.id, inviter.first_name);
+            inviterUser.balance += reward;
+            await inviterUser.save();
+
+            await bot.sendMessage(chatId, `🎉 ${mentionUser(inviter.id, inviter.first_name)} получил **+${reward.toLocaleString('ru-RU')} Roze** из КАЗНЫ за приглашение участника!`, { parse_mode: 'Markdown' });
+        }
+    } catch (e) {}
+});
+
+// ==========================================
+// 7. ОБРАБОТКА CALLBACK QUERY
 // ==========================================
 bot.on('callback_query', async (query) => {
     try {
@@ -206,11 +262,35 @@ bot.on('callback_query', async (query) => {
         const messageId = query.message.message_id;
         const action = query.data;
 
+        if (action === 'buy_treasury') {
+            const user = await getUser(userId, firstName);
+            if (user.balance < 100000) {
+                return await bot.answerCallbackQuery(query.id, { text: '❌ У тебя нет 100,000 Roze для активации!', show_alert: true });
+            }
+
+            const chat = await getChatData(chatId, query.message.chat.title);
+            if (chat.treasuryActive) {
+                return await bot.answerCallbackQuery(query.id, { text: '⚠️ Казна в этом чате уже активирована!', show_alert: true });
+            }
+
+            user.balance -= 100000;
+            await user.save();
+
+            chat.treasuryActive = true;
+            chat.treasuryBalance += 100000; // 100k идут в баланс казны
+            await chat.save();
+
+            await bot.answerCallbackQuery(query.id, { text: '🎉 Казна успешно активирована!' });
+            return await bot.editMessageText(
+                `🏛 **КАЗНА ЧАТА АКТИВИРОВАНА!**\n\nИгрок ${mentionUser(userId, firstName)} оплатил **100,000 Roze** и запустил казну!\n\n💰 Баланс казны: **${chat.treasuryBalance.toLocaleString('ru-RU')} Roze**\n🎁 Авто-выплата за инвайт: **30,000 - 50,000 Roze**`, 
+                { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+            );
+        }
+
         if (action === 'check_sub_and_bonus') {
             const isSubbed = await checkSubscription(userId);
             if (!isSubbed) {
-                return await bot.answerCallbackQuery(query.id, { text: '❌ Ты еще не подписался на канал!', show_alert: true });
-            }
+                return await bot.answerCallbackQuery(query.id, { text: '❌ Ты еще не подписался на канал!', show_alert: true });}
 
             const user = await getUser(userId, firstName);
             const now = Date.now();
@@ -258,7 +338,6 @@ bot.on('callback_query', async (query) => {
             }
 
             user.balance -= totalNeeded;
-            user.tournamentProfit -= totalNeeded;
             await user.save();
 
             let targetsList = [];
@@ -284,22 +363,28 @@ bot.on('callback_query', async (query) => {
             if (game.board[idx] === 'MINE') {
                 game.gameOver = true;
                 delete activeMinesGames[gameKey];
+                
+                // Фиксируем чистый убыток в профит
+                const user = await getUser(userId, firstName);
+                await addNetProfit(user, -game.bet);
+
                 await bot.answerCallbackQuery(query.id, { text: '💥 БУМ! Подорвался!', show_alert: true });
                 return await bot.editMessageText(
-                    `💥 **Мины | Взрыв!**\n\n${mentionUser(userId, firstName)} наступил на мину и потерял **${game.bet.toLocaleString('ru-RU')} Roze**!`, 
+                    `💥 **Мины (6 мин) | Взрыв!**\n\n${mentionUser(userId, firstName)} наступил на мину и потерял **${game.bet.toLocaleString('ru-RU')} Roze**!`, 
                     { chat_id: chatId, message_id: messageId, ...generateMinesKeyboard(game), parse_mode: 'Markdown' }
                 );
             } else {
-                game.gemsFound++;
-                game.multiplier += 0.35;
+                game.gemsFound++;game.multiplier += 0.12; // СРЕЗАННЫЙ КОЭФФИЦИЕНТ
                 await bot.answerCallbackQuery(query.id, { text: '💎 Алмаз!' });
 
-                if (game.gemsFound === 22) { 
+                if (game.gemsFound === 19) { // 25 - 6 мин = 19 кристаллов
                     const winAmount = Math.floor(game.bet * game.multiplier);
                     const user = await getUser(userId, firstName);
                     user.balance += winAmount;
-                    user.tournamentProfit += winAmount;
-                    await user.save();
+                    
+                    const netProfit = winAmount - game.bet;
+                    await addNetProfit(user, netProfit, chatId, query.message.chat.title);
+
                     game.gameOver = true;
                     delete activeMinesGames[gameKey];
                     return await bot.editMessageText(
@@ -309,7 +394,7 @@ bot.on('callback_query', async (query) => {
                 }
 
                 return await bot.editMessageText(
-                    `💣 **Мины (5x5)**\nИгрок: ${mentionUser(userId, firstName)}\nСтавка: **${game.bet.toLocaleString('ru-RU')} Roze** | Множитель: **x${game.multiplier.toFixed(2)}**`, 
+                    `💣 **Мины (6 мин)**\nИгрок: ${mentionUser(userId, firstName)}\nСтавка: **${game.bet.toLocaleString('ru-RU')} Roze** | Множитель: **x${game.multiplier.toFixed(2)}**`, 
                     { chat_id: chatId, message_id: messageId, ...generateMinesKeyboard(game), parse_mode: 'Markdown' }
                 );
             }
@@ -319,8 +404,10 @@ bot.on('callback_query', async (query) => {
             const winAmount = Math.floor(game.bet * game.multiplier);
             const user = await getUser(userId, firstName);
             user.balance += winAmount;
-            user.tournamentProfit += winAmount;
-            await user.save();
+            
+            const netProfit = winAmount - game.bet;
+            await addNetProfit(user, netProfit, chatId, query.message.chat.title);
+
             game.gameOver = true;
             delete activeMinesGames[gameKey];
 
@@ -330,13 +417,11 @@ bot.on('callback_query', async (query) => {
                 { chat_id: chatId, message_id: messageId, ...generateMinesKeyboard(game), parse_mode: 'Markdown' }
             );
         }
-    } catch (e) {
-        console.error('[CALLBACK ERROR]', e.message);
-    }
+    } catch (e) {}
 });
 
 // ==========================================
-// 7. ОБРАБОТКА СООБЩЕНИЙ
+// 8. ОБРАБОТКА СООБЩЕНИЙ
 // ==========================================
 bot.on('message', async (msg) => {
     try {
@@ -365,6 +450,49 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `💰 ${mentionUser(userId, firstName)}, твой баланс: **${user.balance.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
         }
 
+        // ==========================================
+        // КАЗНА ЧАТА (КОМАНДЫ)
+        // ==========================================
+        if (text === 'казна') {
+            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Казна есть только в группах!');
+            const chat = await getChatData(chatId, msg.chat.title);
+
+            if (!chat.treasuryActive){
+                const buyKb = {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '💳 Активировать казну (100,000 Roze)', callback_data: 'buy_treasury' }]
+                        ]
+                    }
+                };
+                return await bot.sendMessage(chatId, `🏛 **Казна чата НЕ активирована!**\n\nКупите активацию казны за **100,000 Roze**, чтобы активировать авто-выдачи за добавление людей в чат!`, { parse_mode: 'Markdown', ...buyKb });
+            } else {
+                return await bot.sendMessage(chatId, `🏛 **Казна чата:**\n\n💰 Баланс: **${chat.treasuryBalance.toLocaleString('ru-RU')} Roze**\n🎁 Авто-выплата за инвайт: **30k - 50k Roze**\n\nПополнить казну: \`пополнить казну [сумма]\``, { parse_mode: 'Markdown' });
+            }
+        }
+
+        const topUpMatch = text.match(/^пополнить\s+казну\s+(\d+)$/);
+        if (topUpMatch) {
+            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Казна есть только в группах!');
+            const amount = parseInt(topUpMatch[1]);
+            const chat = await getChatData(chatId, msg.chat.title);
+
+            if (!chat.treasuryActive) {
+                return await bot.sendMessage(chatId, '⚠️ Казна еще не активирована! Напиши `казна` чтобы купить.', { parse_mode: 'Markdown' });
+            }
+
+            if (amount <= 0 || user.balance < amount) {
+                return await bot.sendMessage(chatId, '❌ Ошибка суммы или нехватка средств!', { parse_mode: 'Markdown' });
+            }
+
+            user.balance -= amount;
+            chat.treasuryBalance += amount;
+            await user.save();
+            await chat.save();
+
+            return await bot.sendMessage(chatId, `🏛 **Казна пополнилась!**\n\n${mentionUser(userId, firstName)} закинул **+${amount.toLocaleString('ru-RU')} Roze**!\nТекущий баланс казны: **${chat.treasuryBalance.toLocaleString('ru-RU')} Roze**`, { parse_mode: 'Markdown' });
+        }
+
         if (text === '🎁 бонус') {
             const isSubbed = await checkSubscription(userId);
             if (!isSubbed) {
@@ -391,20 +519,34 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `🎁 ${mentionUser(userId, firstName)}, ты получил ежедневный бонус **+500 Roze 💰**!`, { parse_mode: 'Markdown' });
         }
 
+        // ==========================================
+        // ТУРНИРЫ (ОБНОВЛЕННЫЕ)
+        // ==========================================
         if (text === '🏆 турнир' || text === 'турнир' || text === 'топ') {
-            const topUsers = await User.find().sort({ tournamentProfit: -1 }).limit(10);
-            let leaderboardText = `🏆 **Суточный Турнир RozeGram**\n\n📊 **ТОП Лидеров:**\n`;
+            const topUsers = await User.find().sort({ maxProfitRecord: -1 }).limit(10);
+            let leaderboardText = `🏆 **Рекордный Заработок (Чистый профит)**\n*(Показывает пиковый выигрыш, не уменьшается при сливах!)*\n\n📊 **ТОП Лидеров:**\n`;
             topUsers.forEach((u, idx) => {
-                if (u.tournamentProfit > 0) {
+                if (u.maxProfitRecord > 0) {
                     const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
-                    leaderboardText += `${medal} ${mentionUser(u.userId, u.firstName)} ➔ +${u.tournamentProfit.toLocaleString('ru-RU')} Roze\n`;
+                    leaderboardText += `${medal} ${mentionUser(u.userId, u.firstName)} ➔ +${u.maxProfitRecord.toLocaleString('ru-RU')} Roze\n`;
+                }});
+            return await bot.sendMessage(chatId, leaderboardText, { parse_mode: 'Markdown' });
+        }
+
+        if (text === '🏆 топ чатов' || text === 'топ чатов') {
+            const topChats = await Chat.find().sort({ totalChatProfit: -1 }).limit(10);
+            let leaderboardText = `🏆 **ТОП Самых Богатых Чатов**\n\n📊 **Рейтинг Групп:**\n`;
+            topChats.forEach((c, idx) => {
+                if (c.totalChatProfit > 0) {
+                    const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
+                    leaderboardText += `${medal} **${c.title}** ➔ +${c.totalChatProfit.toLocaleString('ru-RU')} Roze\n`;
                 }
             });
             return await bot.sendMessage(chatId, leaderboardText, { parse_mode: 'Markdown' });
         }
 
         if (text === '📖 правила игры' || text === 'правила') {
-            return await bot.sendMessage(chatId, `🎰 **Правила Casino**\n\n• Ставка: \`100 к\`, \`2000 0 1 2 3 4 5 12-18\`\n• Лимит ставок за раунд: **250 шт.**\n• Баланс: кнопка или буква \`б\`\n• Отмена: \`отмена\`\n• Мины: \`мины 500\`\n• Кубик: \`100 куб 6\`\n• История выпадений: команда \`лог\`\n• Старт рулетки: \`го\`\n\n⚠️ *Ставки принимаются строго в группах!*`, { parse_mode: 'Markdown' });
+            return await bot.sendMessage(chatId, `🎰 **Правила Casino**\n\n• Ставка: \`100 к\`, \`2000 0 1 2 3 4 5 12-18\`\n• Лимит ставок за раунд: **250 шт.**\n• Баланс: кнопка или буква \`б\`\n• Отмена: \`отмена\`\n• Мины (6 мин): \`мины 500\`\n• Кубик: \`100 куб 6\`\n• Казна: слово \`казна\`\n• История выпадений: команда \`лог\`\n• Старт рулетки: \`го\`\n\n⚠️ *Ставки принимаются строго в группах!*`, { parse_mode: 'Markdown' });
         }
 
         if (text === 'лог' || text === 'история') {
@@ -421,10 +563,6 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `👑 **Админ-выдача!** Начислено **+${amount.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
         }
 
-        // ==========================================
-        // ИГРОВЫЕ КОМАНДЫ (ТОЛЬКО В ГРУППАХ)
-        // ==========================================
-
         if (text === 'отмена' || text === 'отменить') {
             if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Играть и управлять ставками можно только в группах!');
             if (isSpinning) return await bot.sendMessage(chatId, `❌ ${mentionUser(userId, firstName)}, рулетка уже крутится!`, { parse_mode: 'Markdown' });
@@ -436,7 +574,6 @@ bot.on('message', async (msg) => {
 
             const totalRefund = userBets.reduce((sum, b) => sum + b.amount, 0);
             user.balance += totalRefund;
-            user.tournamentProfit += totalRefund;
             await user.save();
 
             currentBets = currentBets.filter(b => b.userId !== userId);
@@ -456,7 +593,7 @@ bot.on('message', async (msg) => {
             if (targetUserId === userId) return await bot.sendMessage(chatId, '❌ Нельзя переводить самому себе!', { parse_mode: 'Markdown' });
 
             const amount = parseInt(payMatch[1]);
-            if (amount <= 0 || user.balance < amount) return await bot.sendMessage(chatId, '❌ Ошибка перевода или нехватка средств!', { parse_mode: 'Markdown' });
+            if (amount <= 0 || user.balance < amount) return await bot.sendMessage(chatId, '❌ Ошибка перевода или нехваткасредств!', { parse_mode: 'Markdown' });
 
             const recipient = await getUser(targetUserId, targetFirstName);
             user.balance -= amount;
@@ -467,6 +604,9 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, `💸 **Успешный перевод!**\n\n${mentionUser(userId, firstName)} ➔ ${mentionUser(targetUserId, targetFirstName)}: **${amount.toLocaleString('ru-RU')} Roze 💰**`, { parse_mode: 'Markdown' });
         }
 
+        // ==========================================
+        // МИНЫ (6 МИН)
+        // ==========================================
         const minesMatch = text.match(/^мины\s+(\d+)$/);
         if (minesMatch) {
             if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Играть можно только в группах!');
@@ -482,12 +622,11 @@ bot.on('message', async (msg) => {
             }
 
             user.balance -= betAmount;
-            user.tournamentProfit -= betAmount;
             await user.save();
 
             let board = Array(25).fill('GEM');
             let minesPlaced = 0;
-            while (minesPlaced < 3) {
+            while (minesPlaced < 6) { // 6 МИН
                 let idx = Math.floor(Math.random() * 25);
                 if (board[idx] !== 'MINE') {
                     board[idx] = 'MINE';
@@ -508,7 +647,7 @@ bot.on('message', async (msg) => {
 
             return await bot.sendMessage(
                 chatId, 
-                `💣 **Мины (5x5)**\nИгрок: ${mentionUser(userId, firstName)}\nСтавка: **${betAmount.toLocaleString('ru-RU')} Roze**\nНажми на ячейку чтобы открыть:`, 
+                `💣 **Мины (6 мин)**\nИгрок: ${mentionUser(userId, firstName)}\nСтавка: **${betAmount.toLocaleString('ru-RU')} Roze**\nНажми на ячейку чтобы открыть:`, 
                 { parse_mode: 'Markdown', ...generateMinesKeyboard(game) }
             );
         }
@@ -522,7 +661,6 @@ bot.on('message', async (msg) => {
             if (user.balance < betAmount || betAmount <= 0) return await bot.sendMessage(chatId, '❌ Нехватка средств!', { parse_mode: 'Markdown' });
 
             user.balance -= betAmount;
-            user.tournamentProfit -= betAmount;
             await user.save();
 
             const diceMsg = await bot.sendDice(chatId, { emoji: '🎲' });
@@ -541,9 +679,10 @@ bot.on('message', async (msg) => {
             if (win) {
                 const winAmount = betAmount * multiplier;
                 user.balance += winAmount;
-                user.tournamentProfit += winAmount;
+                await addNetProfit(user, winAmount - betAmount, chatId, msg.chat.title);
                 report += `✅ Победа! Выигрыш: **+${winAmount.toLocaleString('ru-RU')} Roze 💰**`;
             } else {
+                await addNetProfit(user, -betAmount);
                 report += `❌ Проигрыш! Потеряно **${betAmount.toLocaleString('ru-RU')} Roze**`;
             }
             await user.save();
@@ -551,12 +690,12 @@ bot.on('message', async (msg) => {
         }
 
         // ==========================================
-        // 8. ПАРСИНГ СТАВОК РУЛЕТКИ
+        // ПАРСИНГ СТАВОК РУЛЕТКИ (БЕЗ ИЗМЕНЕНИЙ)
         // ==========================================
         const tokens = text.split(/\s+/);
         const firstNum = parseInt(tokens[0]);
 
-        if (!isSpinning && !isNaN(firstNum) && firstNum > 0 && tokens.length >= 2 && !['мины', 'куб', 'передать', 'перевод', 'себе', 'админ', 'выдать'].includes(tokens[0])) {
+        if (!isSpinning && !isNaN(firstNum) && firstNum > 0 && tokens.length >= 2 && !['мины', 'куб', 'передать', 'перевод', 'себе', 'админ', 'выдать', 'пополнить'].includes(tokens[0])) {
             if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Делать ставки в рулетку можно только в группах!');
 
             const betAmount = firstNum;
@@ -593,7 +732,7 @@ bot.on('message', async (msg) => {
                 if (detectedType === null) {
                     detectedType = currentType;
                 } else if (detectedType !== currentType) {
-                    return await bot.sendMessage(chatId, `❌ **${mentionUser(userId, firstName)}**, НЕЛЬЗЯ мешать категории!\n\nСтавь строго:\n1️⃣ Только **Числа и Диапазоны** (\`10000 0 1 2 3 4 5 12-18\`)\n2️⃣ Только Цвета (\`100 к ч\`)\n3️⃣ Только Чет/Нечет (\`100 чет нечет\`)`, { parse_mode: 'Markdown' });
+                    return await bot.sendMessage(chatId, `❌ **${mentionUser(userId, firstName)}**, НЕЛЬЗЯ мешать категории!`, { parse_mode: 'Markdown' });
                 }
 
                 parsedBets.push({ amount: betAmount, target: target, type: currentType });
@@ -602,11 +741,10 @@ bot.on('message', async (msg) => {
             if (!parseError && parsedBets.length > 0) {
                 const totalSum = parsedBets.reduce((s, b) => s + b.amount, 0);
                 if (user.balance < totalSum) {
-                    return await bot.sendMessage(chatId, `❌ Нехватка средств! Нужно: **${totalSum.toLocaleString('ru-RU')} Roze** (баланс: ${user.balance.toLocaleString('ru-RU')} Roze)`, { parse_mode: 'Markdown' });
+                    return await bot.sendMessage(chatId, `❌ Нехватка средств! Нужно: **${totalSum.toLocaleString('ru-RU')} Roze**`, { parse_mode: 'Markdown' });
                 }
 
                 user.balance -= totalSum;
-                user.tournamentProfit -= totalSum;
                 await user.save();
 
                 let targetsList = [];
@@ -620,34 +758,23 @@ bot.on('message', async (msg) => {
         }
 
         // ==========================================
-        // 9. ЗАПУСК РУЛЕТКИ
+        // ЗАПУСК РУЛЕТКИ (ПРОФИТ ТЕПЕРЬ СЧИТАЕТСЯ ПО-НОВОМУ)
         // ==========================================
         if(text === 'го' || text === 'go' || text === 'крутить' || text === 'spin') {
             if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Запускать рулетку можно только в группах!');
             if (isSpinning) return await bot.sendMessage(chatId, '⏳ Рулетка уже крутится!');
             if (currentBets.length === 0) return await bot.sendMessage(chatId, '⚠️ Нет активных ставок! Сначала сделайте ставку.');
 
-                    isSpinning = true;
+            isSpinning = true;
 
             spinSafetyTimer = setTimeout(() => {
                 emergencyRefund(chatId, 'Таймаут рулетки');
             }, 30000);
 
             try {
-                // ЭМОДЗИ-АНИМАЦИЯ КРУТИЛКИ
-                  // НА ТИВНЫЙ 3D-СЛОТ ОТ ТЕЛЕГРАМА
                 const slotMsg = await bot.sendDice(chatId, { emoji: '🎰' });
-                await sleep(4000); // ждем 4 секунды пока 3D барабаны докрутятся!
+                await sleep(4000);
                 try { await bot.deleteMessage(chatId, slotMsg.message_id); } catch(e) {}
-
-                await sleep(700);
-
-                try { await bot.deleteMessage(chatId, spinMsg.message_id); } catch(e) {}
-
-                try { await bot.deleteMessage(chatId, spinMsg.message_id); } catch(e) {}
-
-                // А ДАЛЬШЕ ИДЕТ ТВОЙ ОБУЧНЫЙ РАСЧЕТ ВЫПАДЕНИЯ (num, isRed и т.д.)
-
 
                 const num = Math.floor(Math.random() * 37);
                 const isRed = redNumbers.includes(num);
@@ -660,13 +787,11 @@ bot.on('message', async (msg) => {
                 else if (num >= 13 && num <= 24) winningRange = '13-24';
                 else if (num >= 25 && num <= 36) winningRange = '25-36';
 
-                // Сохраняем историю
                 const histDoc = await getHistory();
                 histDoc.results.unshift(`${colorEmoji} ${num}`);
                 if (histDoc.results.length > 10) histDoc.results.pop();
                 await histDoc.save();
 
-                // Считаем результаты
                 let userSummary = {};
                 lastRoundBets = {};
 
@@ -705,7 +830,8 @@ bot.on('message', async (msg) => {
                     }
 
                     if (isWin) {
-                        userSummary[bet.userId].totalWin += (bet.amount * mult);}
+                        userSummary[bet.userId].totalWin += (bet.amount * mult);
+                    }
                 }
 
                 let playersSheet = '';
@@ -714,9 +840,11 @@ bot.on('message', async (msg) => {
                     const betUser = await getUser(uId, data.firstName);
                     const netProfit = data.totalWin - data.totalCost;
 
+                    // Добавляем профит в накопительную систему
+                    await addNetProfit(betUser, netProfit, chatId, msg.chat.title);
+
                     if (data.totalWin > 0) {
                         betUser.balance += data.totalWin;
-                        betUser.tournamentProfit += data.totalWin;
                         await betUser.save();
                         playersSheet += `├ 🎉 ${mentionUser(uId, data.firstName)}: **ВИН +${data.totalWin.toLocaleString('ru-RU')} Roze** (Профит: +${netProfit.toLocaleString('ru-RU')})\n`;
                     } else {
@@ -758,12 +886,9 @@ ${playersSheet.trim()}`;
                 await bot.sendMessage(chatId, report.trim(), { parse_mode: 'Markdown', ...actionButtons });
 
             } catch (err) {
-                console.error('[SPIN ERROR]', err.message);
                 await emergencyRefund(chatId, err.message);
             }
         }
 
-    } catch (globalErr) {
-        console.error('[GLOBAL ERROR]', globalErr.message);
-    }
+    } catch (globalErr) {}
 });
