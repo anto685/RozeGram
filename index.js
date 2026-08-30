@@ -39,7 +39,8 @@ const BOT_START_TIME = Math.floor(Date.now() / 1000);
 const ADMIN_ID = 6947353037;
 
 // ТВОЯ ГИФКА РУЛЕТКИ
-const ROULETTE_GIF_ID = 'CgACAgUAAxkBAAEuLLJqk9LK2EhBZ3Rq3aCInO8jpVx4fwACFSMAAzmhVEEMDwRkfnpmPQQ';
+const ROULETTE_GIF_ID = 'const ROULETTE_GIF_ID = 'https://media.giphy.com/media/l41YtZOb9EUwkiSiA/giphy.gif';
+';
 
 mongoose.set('strictQuery', false);
 const connectDB = async () => {
