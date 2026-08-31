@@ -755,7 +755,9 @@ await sleep(4000);
                 }
             };
 
-            await bot.editMessageText(reportText, { chat_id: chatId, message_id: spinMsg.message_id, parse_mode: 'Markdown', ...replayKeyboard });
+            try { await bot.deleteMessage(chatId, spinMsg.message_id); } catch(e) {}
+await bot.sendMessage(chatId, reportText, { parse_mode: 'Markdown', ...replayKeyboard });
+
         }
 
     } catch (e) {
