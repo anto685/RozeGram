@@ -757,112 +757,62 @@ bot.on('message', async (msg) => {
     }
 });
 
-// ==========================================
-// 11. ЗАПУСК И РАСЧЕТ РУЛЕТКИ
-// ==========================================
-async function runRoulette(chatId, msg) {
-    try {
-        const bets = chatBets[chatId] || [];
-        if (bets.length === 0) {
-            spinningChats[chatId] = false;
-            return;
-        }
+        // ==========================================
+        // 10. РУЛЕТКА ОБРАБОТЧИК СТАВОК (МУЛЬТИ-СТАВКА В ОДНОЙ СТРОКЕ!)
+        // ==========================================
+        const rouletteMatch = text.match(/^(\d+)\s+(.+)$/);
+        if (rouletteMatch && !lowerText.startsWith('куб') && !lowerText.startsWith('мины') && !lowerText.startsWith('п ')) {
+            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Играть можно только в группах!');
+            if (spinningChats[chatId]) return await bot.sendMessage(chatId, '⚠️ Рулетка уже крутится, ждите окончания раунда!');
 
-        spinningChats[chatId] = true;
+            const betAmount = parseInt(rouletteMatch[1]);
+            const targetsRaw = rouletteMatch[2].trim().toLowerCase().split(/\s+/); // Разбиваем все targets по пробелам
 
-        const spinMsg = await bot.sendDice(chatId, { emoji: '🎰' });
-        await sleep(3000);
+            let validTargets = [];
 
-        const winningNum = Math.floor(Math.random() * 37);
-        const isZero = winningNum === 0;
-        const isRed = redNumbers.includes(winningNum);
-        const colorEmoji = isZero ? '🟢' : isRed ? '🔴' : '⚫️';
-        const colorName = isZero ? 'ЗЕРО' : isRed ? 'КРАСНОЕ' : 'ЧЕРНОЕ';
+            // Проверяем КАЖДОЕ слово из сообщения
+            for (let target of targetsRaw) {
+                const isColor = ['к', 'красное', 'red', 'ч', 'черное', 'black'].includes(target);
+                const isEvenOdd = ['чет', 'четное', 'even', 'нечет', 'нечетное', 'odd'].includes(target);
+                const isExactNumber = /^\d+$/.test(target) && parseInt(target) >= 0 && parseInt(target) <= 36;
+                
+                let isRange = false;
+                if (/^\d+-\d+$/.test(target)) {
+                    const [min, max] = target.split('-').map(Number);
+                    if (min >= 0 && max <= 36 && min < max) {
+                        isRange = true;
+                    }
+                }
 
-        let resultsByPlayer = {};
-        for (const b of bets) {
-            if (!resultsByPlayer[b.userId]) resultsByPlayer[b.userId] = { firstName: b.firstName, bet: 0, win: 0 };
-            resultsByPlayer[b.userId].bet += b.amount;
-
-            let isWin = false;
-            let coeff = 0;
-            const target = b.target.toLowerCase();
-
-            if (/^\d+$/.test(target) && parseInt(target) === winningNum) { 
-                isWin = true; 
-                coeff = 36; 
-            }
-            else if (target.includes('-')) {
-                const [min, max] = target.split('-').map(Number);
-                if (winningNum >= min && winningNum <= max) { 
-                    isWin = true; 
-                    coeff = Math.floor(36 / (max - min + 1)); 
+                if (isColor || isEvenOdd || isExactNumber || isRange) {
+                    validTargets.push(target);
                 }
             }
-            else if (['к', 'красное', 'red'].includes(target) && isRed && !isZero) { 
-                isWin = true; 
-                coeff = 2; 
-            }
-            else if (['ч', 'черное', 'black'].includes(target) && !isRed && !isZero) { 
-                isWin = true; 
-                coeff = 2; 
-            }
-            else if (['чет', 'четное', 'even'].includes(target) && winningNum !== 0 && winningNum % 2 === 0) { 
-                isWin = true; 
-                coeff = 2; 
-            }
-            else if (['нечет', 'нечетное', 'odd'].includes(target) && winningNum !== 0 && winningNum % 2 !== 0) { 
-                isWin = true; 
-                coeff = 2; 
+
+            // Если ни одной нормальной ставки не нашли — иди лесом
+            if (validTargets.length === 0) return;
+
+            const totalCost = betAmount * validTargets.length;
+
+            if (user.balance < totalCost || betAmount <= 0) {
+                return await bot.sendMessage(chatId, `❌ Нехватка средств! На ${validTargets.length} шт. ставок нужно: *${totalCost.toLocaleString('ru-RU')} Roze*`, { parse_mode: 'Markdown' });
             }
 
-            if (isWin) {
-                resultsByPlayer[b.userId].win += b.amount * coeff;
+            if (!chatBets[chatId]) chatBets[chatId] = [];
+
+            if (chatBets[chatId].length + validTargets.length > MAX_BETS_PER_ROUND) {
+                return await bot.sendMessage(chatId, '⚠️ Достигнут лимит ставок на этот раунд!');
             }
+
+            // Списываем сразу за ВСЕ валидные ставки
+            user.balance -= totalCost;
+            await user.save();
+
+            let acceptedLines = [];
+            for (let t of validTargets) {
+                chatBets[chatId].push({ userId, firstName, amount: betAmount, target: t, type: 'roulette' });
+                acceptedLines.push(t.toUpperCase());
+            }
+
+            await bot.sendMessage(chatId, `🎰 Ставка принята: ${mentionUser(userId, firstName)} *${betAmount.toLocaleString('ru-RU')} Roze* на *${acceptedLines.join(', ')}* (Всего: ${totalCost.toLocaleString('ru-RU')} Roze)`, { parse_mode: 'Markdown' });
         }
-
-        for (const uid in resultsByPlayer) {
-            const res = resultsByPlayer[uid];
-            const playerUser = await getUser(Number(uid), res.firstName);
-            if (res.win > 0) playerUser.balance += res.win;
-            await addNetProfit(playerUser, res.win - res.bet, chatId, msg.chat.title);
-        }
-
-        const chat = await getChatData(chatId, msg.chat.title);
-        chat.history.unshift(`${winningNum}${colorEmoji}`);
-        if (chat.history.length > 5) chat.history.pop();
-        await chat.save();
-
-        lastRoundBets[chatId] = {};
-        for (const b of bets) {
-            if (!lastRoundBets[chatId][b.userId]) lastRoundBets[chatId][b.userId] = [];
-            lastRoundBets[chatId][b.userId].push(b);
-        }
-
-        chatBets[chatId] = [];
-        spinningChats[chatId] = false;
-
-        let reportText = `🎰 **Выпало:** ${colorEmoji} **${winningNum}** (${colorName})\n\n`;
-        for (const uid in resultsByPlayer) {
-            const res = resultsByPlayer[uid];
-            const net = res.win - res.bet;
-            if (net > 0) reportText += `✅ ${mentionUser(uid, res.firstName)} ➔ **+${net.toLocaleString('ru-RU')} Roze**\n`;
-            else if (net < 0) reportText+= `❌ ${mentionUser(uid, res.firstName)} ➔ **-${Math.abs(net).toLocaleString('ru-RU')} Roze**\n`;
-            else reportText += `⚖️ ${mentionUser(uid, res.firstName)} ➔ **В нуле**\n`;
-        }
-
-        const replayKeyboard = {
-            reply_markup: {
-                inline_keyboard: [[{ text: '🔄 Повторить', callback_data: 'repeat_bet' }, { text: '✖️2 Удвоить', callback_data: 'double_bet' }]]
-            }
-        };
-
-        await bot.sendMessage(chatId, reportText, { parse_mode: 'Markdown', ...replayKeyboard });
-
-    } catch (e) {
-        console.log('[ROULETTE RUN ERROR]', e);
-        await emergencyRefund(chatId, 'Ошибка в рулетке');
-    }
-}
-
-console.log('🎰 RozeGram Casino Bot готов раздавать кэш! Запуск прошёл успешно.');
