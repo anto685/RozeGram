@@ -687,8 +687,8 @@ bot.on('message', async (msg) => {
             spinningChats[chatId] = true;
             spinSafetyTimers[chatId] = setTimeout(() => emergencyRefund(chatId, 'Таймаут'), 15000);
 
-            const spinMsg = await bot.sendMessage(chatId, '🎰 **Рулетка крутится...**\n\n[ ⚪⚪⚪⚪⚪ ]', { parse_mode: 'Markdown' });
-            await sleep(1500);
+       const spinMsg = await bot.sendDice(chatId, { emoji: '🎰' });
+await sleep(4000);
 
             const winningNum = Math.floor(Math.random() * 37);
             const isZero = winningNum === 0;
