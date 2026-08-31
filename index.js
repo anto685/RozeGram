@@ -700,8 +700,8 @@ bot.on('message', async (msg) => {
             return await bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
         }
 
-        // ==========================================
-        // 10. РУЛЕТКА ОБРАБОТЧИК СТАВОК (ИСПРАВЛЕНО!)
+         // ==========================================
+        // 10. РУЛЕТКА ОБРАБОТЧИК СТАВОК (ЛЮБЫЕ ДИАПАЗОНЫ!)
         // ==========================================
         const rouletteMatch = text.match(/^(\d+)\s+(.+)$/);
         if (rouletteMatch && !lowerText.startsWith('куб') && !lowerText.startsWith('мины') && !lowerText.startsWith('п ')) {
@@ -714,12 +714,24 @@ bot.on('message', async (msg) => {
             const words = target.split(/\s+/);
             if (words.length > 0) target = words[0];
 
+            // 1. Проверка на Цвет
             const isColor = ['к', 'красное', 'red', 'ч', 'черное', 'black'].includes(target);
+            // 2. Проверка на Чет/Нечет
             const isEvenOdd = ['чет', 'четное', 'even', 'нечет', 'нечетное', 'odd'].includes(target);
-            const isRange = /^\d+-\d+$/.test(target);
+            // 3. Проверка на Точное число (0-36)
             const isExactNumber = /^\d+$/.test(target) && parseInt(target) >= 0 && parseInt(target) <= 36;
+            
+            // 4. Проверка на ЛЮБОЙ правильный диапазон (от 0 до 36)
+            let isRange = false;
+            if (/^\d+-\d+$/.test(target)) {
+                const [min, max] = target.split('-').map(Number);
+                if (min >= 0 && max <= 36 && min < max) {
+                    isRange = true;
+                }
+            }
 
-            if (!isColor && !isEvenOdd && !isRange && !isExactNumber) return;
+            // Если не подошло ни под один тип — игнорим шлак!
+            if (!isColor && !isEvenOdd && !isExactNumber && !isRange) return;
 
             if (user.balance < betAmount || betAmount <= 0) {
                 return await bot.sendMessage(chatId, '❌ Нехватка средств!', { parse_mode: 'Markdown' });
@@ -734,6 +746,7 @@ bot.on('message', async (msg) => {
             user.balance -= betAmount;
             await user.save();
 
+            // Добавляем ставку в пачку (можно делать много разных!)
             chatBets[chatId].push({ userId, firstName, amount: betAmount, target, type: 'roulette' });
 
             await bot.sendMessage(chatId, `🎰 Ставка принята: ${mentionUser(userId, firstName)} **${betAmount.toLocaleString('ru-RU')} Roze** на **${target.toUpperCase()}**`, { parse_mode: 'Markdown' });
@@ -745,7 +758,7 @@ bot.on('message', async (msg) => {
 });
 
 // ==========================================
-// 11. ЗАПУСК И РАСЧЕТ РУЛЕТКИ (ЖЕСТКИЙ ФИКС ВЫИГРЫША!)
+// 11. ЗАПУСК И РАСЧЕТ РУЛЕТКИ
 // ==========================================
 async function runRoulette(chatId, msg) {
     try {
@@ -834,7 +847,7 @@ async function runRoulette(chatId, msg) {
             const res = resultsByPlayer[uid];
             const net = res.win - res.bet;
             if (net > 0) reportText += `✅ ${mentionUser(uid, res.firstName)} ➔ **+${net.toLocaleString('ru-RU')} Roze**\n`;
-            else if (net < 0) reportText += `❌ ${mentionUser(uid, res.firstName)} ➔ **-${Math.abs(net).toLocaleString('ru-RU')} Roze**\n`;
+            else if (net < 0) reportText+= `❌ ${mentionUser(uid, res.firstName)} ➔ **-${Math.abs(net).toLocaleString('ru-RU')} Roze**\n`;
             else reportText += `⚖️ ${mentionUser(uid, res.firstName)} ➔ **В нуле**\n`;
         }
 
