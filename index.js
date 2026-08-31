@@ -230,7 +230,7 @@ setInterval(async () => {
             }
 
             await User.updateMany({}, { accumulatedProfit: 0, maxProfitRecord: 0 });
-            await Chat.updateMany({}, { totalChatProfit: 0 });
+            awaitChat.updateMany({}, { totalChatProfit: 0 });
 
             console.log('[MIDNIGHT TOURNAMENT] Награды выплачены, рейтинги обнулены!');
         } catch (e) {
@@ -385,7 +385,7 @@ bot.on('callback_query', async (query) => {
             let responseLines = [];
             for (const b of newBets) {
                 chatBets[chatId].push({ userId, firstName, amount: b.amount, target: b.target, type: b.type });
-                responseLines.push(`Ставка принята: ${mentionUser(userId, firstName)} **${b.amount.toLocaleString('ru-RU')} Roze** на **${b.target.toUpperCase()}**`);
+                responseLines.push(`🎰 Ставка принята: ${mentionUser(userId, firstName)} **${b.amount.toLocaleString('ru-RU')} Roze** на **${b.target.toUpperCase()}**`);
             }
 
             await bot.answerCallbackQuery(query.id, { text: '✅ Ставка сделана!' });
@@ -418,8 +418,7 @@ bot.on('callback_query', async (query) => {
                 await bot.answerCallbackQuery(query.id, { text: '💎 Алмаз!' });
 
                 if (game.gemsFound === 19) {
-                    const winAmount = Math.floor(game.bet * game.multiplier);
-                    const user = await getUser(userId, firstName);
+                    const winAmount = Math.floor(game.bet * game.multiplier);const user = await getUser(userId, firstName);
                     user.balance += winAmount;
                     await addNetProfit(user, winAmount - game.bet, chatId, query.message.chat.title);
                     game.gameOver = true;
@@ -495,14 +494,14 @@ bot.on('message', async (msg) => {
         }
 
         // ==========================================
-        // НОВАЯ МЕХАНИКА: МИНИМАЛИСТИЧНЫЙ ПЕРЕВОД (п сумма)
+        // МЕХАНИКА: ПЕРЕВОД (п сумма)
         // ==========================================
         const transferMatch = text.match(/^(п|перевод)\s+(\d+)$/i);
         if (transferMatch) {
-            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Переводы работают только в чатах!');if (!msg.reply_to_message) return await bot.sendMessage(chatId, '⚠️ Ответь на сообщение того, кому хочешь перевести!');
+            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Переводы работают только в чатах!');
+            if (!msg.reply_to_message) return await bot.sendMessage(chatId, '⚠️ Ответь на сообщение того, кому хочешь перевести!');
 
-            const targetUserRaw = msg.reply_to_message.from;
-            if (!targetUserRaw || targetUserRaw.is_bot) return await bot.sendMessage(chatId, '⚠️ Нельзя переводить ботам!');
+            const targetUserRaw = msg.reply_to_message.from;if (!targetUserRaw || targetUserRaw.is_bot) return await bot.sendMessage(chatId, '⚠️ Нельзя переводить ботам!');
             if (targetUserRaw.id === userId) return await bot.sendMessage(chatId, '⚠️ Самому себе переводить нельзя, умник!');
 
             const amount = parseInt(transferMatch[2]);
@@ -511,14 +510,12 @@ bot.on('message', async (msg) => {
 
             const recipient = await getUser(targetUserRaw.id, targetUserRaw.first_name);
 
-            // Списываем и начисляем
             user.balance -= amount;
             recipient.balance += amount;
 
             await user.save();
             await recipient.save();
 
-            // Минималистичный вывод по скриншоту
             return await bot.sendMessage(
                 chatId, 
                 `${mentionUser(userId, firstName)} перевел **${amount.toLocaleString('ru-RU')} Roze** для ${mentionUser(recipient.userId, recipient.firstName)}`, 
@@ -655,8 +652,7 @@ bot.on('message', async (msg) => {
         }
 
         const diceMatch = text.match(/^куб\s+(\d+)\s+(1|2|3|4|5|6|чет|нечет)$/i);
-        if (diceMatch) {
-            if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Играть можно только в группах!');
+        if (diceMatch) {if (isPrivate) return await bot.sendMessage(chatId, '⚠️ Играть можно только в группах!');
             const betAmount = parseInt(diceMatch[1]);
             const target = diceMatch[2].toLowerCase();
 
@@ -691,7 +687,7 @@ bot.on('message', async (msg) => {
         }
 
         // ==========================================
-        // 10. РУЛЕТКА ОБРАБОТЧИК СТАВОК
+        // 10. РУЛЕТКА ОБРАБОТЧИК СТАВОК (СТРОГО С 🎰)
         // ==========================================
         const rouletteMatch = text.match(/^(\d+)\s+(.+)$/);
         if (rouletteMatch && !lowerText.startsWith('куб') && !lowerText.startsWith('мины') && !lowerText.startsWith('п ')) {
@@ -714,7 +710,8 @@ bot.on('message', async (msg) => {
 
             chatBets[chatId].push({ userId, firstName, amount: betAmount, target, type: 'roulette' });
 
-            await bot.sendMessage(chatId, `🎯 Ставка принята: ${mentionUser(userId, firstName)} **${betAmount.toLocaleString('ru-RU')} Roze** на **${target.toUpperCase()}**`, { parse_mode: 'Markdown' });
+            // ВОТ ТУТ СЛОТ-МАШИНА СЛОНОФАНТАСТИЧЕСКАЯ 🎰
+            await bot.sendMessage(chatId, `🎰 Ставка принята: ${mentionUser(userId, firstName)} **${betAmount.toLocaleString('ru-RU')} Roze** на **${target.toUpperCase()}**`, { parse_mode: 'Markdown' });
 
             if (!spinningChats[chatId]) {
                 spinningChats[chatId] = true;
@@ -742,13 +739,12 @@ async function runRoulette(chatId, msg) {
             return;
         }
 
-        const spinMsg = await bot.sendMessage(chatId, '🎰 *КРУТИМ БАРАБАН...*🌀', { parse_mode: 'Markdown' });
+        const spinMsg = await bot.sendMessage(chatId, '🎰 *КРУТИМ БАРАБАН...* 🌀', { parse_mode: 'Markdown' });
         await sleep(3000);
 
         const winningNum = Math.floor(Math.random() * 37);
         const isZero = winningNum === 0;
-        const isRed = redNumbers.includes(winningNum);
-        const colorEmoji = isZero ? '🟢' : isRed ? '🔴' : '⚫️';
+        const isRed = redNumbers.includes(winningNum);const colorEmoji = isZero ? '🟢' : isRed ? '🔴' : '⚫️';
         const colorName = isZero ? 'ЗЕРО' : isRed ? 'КРАСНОЕ' : 'ЧЕРНОЕ';
 
         let resultsByPlayer = {};
